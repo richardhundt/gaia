@@ -1,0 +1,8 @@
+#!/usr/bin/env lua
+
+package.path = ';;./src/?.lua;'..package.path
+package.cpath = ';;./lib/?.so;'..package.cpath
+
+require "kudu.runtime"
+kudu.runfile(arg[1], { dump_ast = false, dump_ost = false })
+

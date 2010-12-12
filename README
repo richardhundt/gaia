@@ -1,0 +1,12 @@
+== Gaia Lua Compiler Tools
+
+Gaia aims to provide a parser and bytecode generator for the Lua VM to
+aid in targetting the Lua VM as a runtime for other dynamic languages. At
+this stage only Lua 5.1 is supported.
+
+Documentation needs to be written, but right now I need to get the code
+into shape.
+
+In the meantime, this ships with a simple language called Kudu which
+can be used as a reference.
+
