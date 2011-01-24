@@ -407,9 +407,6 @@ end
 --]]
 
 function kudu.table(table)
-   for k,v in pairs(table) do
-      print("table => ", k, v)
-   end
    return setmetatable(table, Table)
 end
 
@@ -541,7 +538,7 @@ end
 kudu.runfile = function(filename, options)
    local source = io.open(filename):read("*a")
    local chunk = kudu.compiler.compile(source, filename, options)
-   local main = loadstring(chunk)
+   local main = assert(loadstring(chunk, "="..filename))
    setfenv(main, _M.global)
    main()
 end
@@ -586,6 +583,9 @@ end
 _M.global.require = function(...) return _G.require(...) end
 _M.global.kudu = kudu
 
+for k,v in pairs(_M.global) do
+   _M.global[string.gsub(k, '[()]', '__')] = v
+end
 function kudu.load()
    setfenv(2, kudu.package.current.environ)
 end

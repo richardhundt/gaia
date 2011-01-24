@@ -81,7 +81,7 @@ Context.compile = function(self, source, fname, opts)
       Ops{
          Call{ Id"require", String"kudu.runtime" };
          Call{ Index{ Id"kudu", String"load" } };
-         Local{ { Id"this" }; Index{ Id"kudu", String"null" } };
+         Local{ { Id"this" }; { Index{ Id"kudu", String"null" } } };
          self:process(self.input);
          Call{ Id"(init)" };
          Return{ Id"__package__" };
@@ -100,9 +100,11 @@ Context.process = function(self, node)
       if func then
          if node.locn then
             self.line = node.locn.line
+            self.locn = node.locn
          end
          local nost = func(self, node)
          nost.line = self.line
+         nost.locn = self.locn
          return nost
       end
       error("no handler for node: "..tostring(node.tag))
@@ -394,28 +396,41 @@ function def:op_circumfix(node)
    end
    return nops
 end
+--[[
+<op_postcircumfix> {
+  "oper" = "(",
+  [1] = <ident> @[1..5]:1 {
+    [1] = "print",
+  },
+  [2] = <list_expr> @[7..19]:1 {
+    [1] = <op_listfix> {
+      [1] = <expr> @[7..9]:1 {
+        [1] = <string> @[7..9]:1 {
+          [1] = "a",
+        },
+      },
+      [2] = <expr> @[12..14]:1 {
+        [1] = <string> @[12..14]:1 {
+          [1] = "b",
+        },
+      },
+      [3] = <expr> @[17..19]:1 {
+        [1] = <string> @[17..19]:1 {
+          [1] = "c",
+        },
+      },
+    },
+  },
+}
+]]
 function def:op_postcircumfix(node)
    local oper = node.oper
    local expr
    if oper == "{" then
-      self:enter_scope()
-
-      local body  = node[2]
-      local outer = self.block
-      local nops  = Ops{ }
-      self.block  = nops
-
-      for i=1,#body do
-         nops[#nops + 1] = self:process(body[i])
-      end
-
-      self.block = outer
-
-      self:leave_scope()
-      expr = { Function{ { Id"(self)", Rest{ } }, nops } }
+      node[2].tag = 'table_literal'
+      expr = self:get('table_literal', node[2])
    else
-      expr = node[2]
-      if expr ~= "" then
+      if node[2] ~= "" then
          expr = self:process(node[2])
       else
          expr = { }
@@ -464,18 +479,21 @@ function def:op_postcircumfix(node)
                args = node[2][1]
             end
          end
-         if oper ~= "{" then
-            --XXX fixme for blocks
-            if iden.tag == 'ident' then
-               local info = self.scope:lookup(iden[1])
-            elseif iden.tag == 'op_postcircumfix' then
-               -- XXX: if RHS expression, check return type from foo.bar()()
-            end
+
+         --XXX fixme for blocks
+         if iden.tag == 'ident' then
+            local info = self.scope:lookup(iden[1])
+         elseif iden.tag == 'op_postcircumfix' then
+            -- XXX: if RHS expression, check return type from foo.bar()()
          end
 
          local base = self:process(node[1])
-         local call = Call{ base, Id"this", unpack(expr) }
-
+         local call
+         if expr.tag == "Call" then
+            call = Call{ base, Id"this", expr }
+         else
+            call = Call{ base, Id"this", unpack(expr) }
+         end
          return call
       end
    elseif oper == "[" then
@@ -906,10 +924,6 @@ function def:export_decl(node)
    return Call{ Id"(package_export)", table2ost(list) };
 end
 
-function kpairs(t)
-   return next, t, #t > 0 and #t or nil;
-end
-
 function osttype(v)
    if v == nil then
       return Nil()
@@ -930,11 +944,15 @@ end
 
 function table2ost(t)
    local ost = Table{ }
+   local seen = { }
    for i,v in ipairs(t) do
+      seen[i] = true
       ost[#ost + 1] = osttype(v)
    end
-   for k,v in kpairs(t) do
-      ost[#ost + 1] = Pair{ osttype(k), osttype(v) }
+   for k,v in pairs(t) do
+      if not seen[k] then
+         ost[#ost + 1] = Pair{ osttype(k), osttype(v) }
+      end
    end
    return ost
 end

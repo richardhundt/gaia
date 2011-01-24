@@ -183,6 +183,9 @@ p:rule"pair" {
    (m.C((m.V"alpha" + m.P'_') * (m.V"alnum" + m.P'_')^0) + m.P"[" * s * m.V"expr" * s * p:expect"]") * s
    * p:expect":" * s * m.V"expr"
 }
+p:match"expr_pairs" {
+   m.V"pair" * (s * "," * s * m.V"pair")^0
+}
 p:match"range" {
    m.V"number" * s * ".." * s * m.V"number"
 }
@@ -290,8 +293,8 @@ expr_base:op_infix(".", "::"):prec(40) :expr"member_term"
 expr_base:op_postcircumfix"[]":prec(38)
 expr_base:op_postcircumfix"[]":prec(40)
 
-expr_base:op_postcircumfix"{}":prec(38) :expr"block"
-expr_base:op_postcircumfix"{}":prec(40) :expr"block"
+expr_base:op_postcircumfix"{}":prec(38) :expr"expr_pairs"
+expr_base:op_postcircumfix"{}":prec(40) :expr"expr_pairs"
 
 ------------------------------------------------------------------------------
 -- Full Expression

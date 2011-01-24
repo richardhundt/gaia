@@ -4,5 +4,5 @@ package.path = ';;./src/?.lua;../../src/?.lua;'..package.path
 package.cpath = ';;./lib/?.so;../../lib/?.so;'..package.cpath
 
 require "kudu.runtime"
-kudu.runfile(arg[1], { dump_ast = false, dump_ost = false })
+kudu.runfile(arg[1], { dump_ast = true, dump_ost = true })
 
