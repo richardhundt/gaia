@@ -14,7 +14,7 @@ local Function, Call, Invoke = gen.Function, gen.Call, gen.Invoke
 local Return, Label, Goto = gen.Return, gen.Label, gen.Goto
 local Table, Index, Pair = gen.Table, gen.Index, gen.Pair
 local If, For, ForIn, While = gen.If, gen.For, gen.ForIn, gen.While
-local Rest = gen.Rest
+local Rest, Bracket, Repeat = gen.Rest, gen.Bracket, gen.Repeat
 
 Scope = { }
 Scope.__index = Scope
@@ -65,6 +65,7 @@ Context.compile = function(self, source, fname, opts)
    self.scope:define("String")
    self.scope:define("Boolean")
    self.scope:define("Function")
+   self.scope:define("RegExp")
 
    self.scope:define("print")
    self.scope:define("magic")
@@ -202,21 +203,13 @@ function def:for_in_stmt(node)
    local expr = self:process(node[2])
    local iter
    if #vars == 1 then
-      iter = { Invoke{ expr[1], String"getValueIterator" } }
+      iter = { Invoke{ expr[1], "getValueIterator" } }
    else
-      iter = { Invoke{ expr[1], String"getKeyValueIterator" } }
+      iter = { Invoke{ expr[1], "getKeyValueIterator" } }
    end
    local body = self:process(node[3])
    self:leave_scope()
    return ForIn{ vars, iter, body }
-end
-function def:expr_lost(node)
-   local nops = Ops{ }
-   for i=1, #node do
-      local expr = node[i]
-      nops[#nops + 1] = self:get('expr', expr)
-   end
-   return nops
 end
 function def:cond_block(node)
    local block = Ops{ }
@@ -279,9 +272,9 @@ function def:op_infix(node)
          b = self:process(node[2])
       end
       if node.is_lhs then
-         return { a, String"__set_member", b }
+         return { a, "__set_member", b }
       else
-         return Invoke{ a, String"__get_member", b }
+         return Invoke{ a, "__get_member", b }
       end
    end
    if o == "::" then
@@ -293,8 +286,6 @@ function def:op_infix(node)
       return Index{ a, b }
    end
    b = self:process(node[2])
-   node[1].ost = a
-   node[2].ost = b
    if     o == "||" then return Op{ "or", a, b }
    elseif o == "&&" then return Op{ "and", a, b }
    elseif o == "==" then return Op{ "eq", a, b }
@@ -396,51 +387,19 @@ function def:op_circumfix(node)
    end
    return nops
 end
---[[
-<op_postcircumfix> {
-  "oper" = "(",
-  [1] = <ident> @[1..5]:1 {
-    [1] = "print",
-  },
-  [2] = <list_expr> @[7..19]:1 {
-    [1] = <op_listfix> {
-      [1] = <expr> @[7..9]:1 {
-        [1] = <string> @[7..9]:1 {
-          [1] = "a",
-        },
-      },
-      [2] = <expr> @[12..14]:1 {
-        [1] = <string> @[12..14]:1 {
-          [1] = "b",
-        },
-      },
-      [3] = <expr> @[17..19]:1 {
-        [1] = <string> @[17..19]:1 {
-          [1] = "c",
-        },
-      },
-    },
-  },
-}
-]]
 function def:op_postcircumfix(node)
    local oper = node.oper
    local expr
-   if oper == "{" then
-      node[2].tag = 'table_literal'
-      expr = self:get('table_literal', node[2])
+   if node[2] ~= "" then
+      expr = self:process(node[2])
    else
-      if node[2] ~= "" then
-         expr = self:process(node[2])
-      else
-         expr = { }
-      end
+      expr = { }
    end
-   if oper == "(" or oper == "{" then
+   if oper == "(" then
       if node[1].oper == "." then
          local meth_name = node[1][2][1]
          local this = self:process(node[1][1])
-         local meth = String(meth_name)
+         local meth = meth_name
          if node[1][1][1] == "super" then
             return Call{ Index{ this, meth }, Id"this", unpack(expr) }
          end
@@ -449,7 +408,7 @@ function def:op_postcircumfix(node)
          local meth
          if node[1][2].tag == "ident" then
             local meth_name = node[1][2][1]
-            meth = String(meth_name)
+            meth = meth_name
          else
             -- late binding base::[expr]()
             meth = self:process(node[1][2])
@@ -473,16 +432,12 @@ function def:op_postcircumfix(node)
          local iden = node[1]
          local args = { }
          if node[2] ~= "" then
-            if node[2].tag == "block" then
-               --args[#args + 1] = Rest{ }
-            else
-               args = node[2][1]
-            end
+            args = node[2][1]
          end
 
          --XXX fixme for blocks
          if iden.tag == 'ident' then
-            local info = self.scope:lookup(iden[1])
+            --local info = self.scope:lookup(iden[1])
          elseif iden.tag == 'op_postcircumfix' then
             -- XXX: if RHS expression, check return type from foo.bar()()
          end
@@ -499,9 +454,9 @@ function def:op_postcircumfix(node)
    elseif oper == "[" then
       local base = self:process(node[1])
       if node.is_lhs then
-         return { base, String"__set_index", expr }
+         return { base, "__set_index", expr }
       else
-         return Invoke{ base, String"__get_index", expr }
+         return Invoke{ base, "__get_index", expr }
       end
    end
 end
@@ -539,7 +494,12 @@ function def:bind_stmt(node)
       local lhs_expr = lhs_expr_list[i]
       local rhs_expr = rhs_expr_list[i]
       local lhs_oper = lhs_expr[1].oper
-      if not(lhs_oper == '.' or lhs_oper == '[' or lhs_oper == '::' or lhs_expr[1].tag == "ident") then
+      if not(
+         lhs_oper == '.' or
+         lhs_oper == '[' or
+         lhs_oper == '::' or
+         lhs_expr[1].tag == "ident"
+      ) then
          self:error('invalid left hand side in assignment')
       end
       lhs_expr[1].is_lhs = true
@@ -570,19 +530,7 @@ function def:func_decl(node)
    self.scope:define(name)
 
    local func = Function{ parm_list, nops }
-   --[[
-   outer[#outer + 1] = Call{
-      Id"(register_function)", String(name), func
-   }
-   --]]
-
-   local set = Set{ { Id(name) }, { func } }
-   --[[
-   outer[#outer + 1] = Call{
-      Id"(register_function)", String(name), Id(name)
-   }
-   --]]
-   return set
+   return Set{ { Id(name) }, { func } }
 end
 function def:func_params(node)
    local list = { Id"(self)" }
@@ -598,6 +546,22 @@ function def:func_params(node)
       list[#list + 1] = Id(name)
    end
    return list
+end
+function def:short_lambda(node)
+   self:enter_scope()
+
+   node[1].tag = 'func_params'
+   local parm_list = self:process(node[1])
+   local nops = def.func_init(self)
+
+   local outer = self.block
+   self.block = nops
+   nops[#nops + 1] = Return{ self:process(node[2]) }
+   self.block = outer
+
+   self:leave_scope()
+
+   return Function{ parm_list, nops }
 end
 function def:func_literal(node)
    self:enter_scope()

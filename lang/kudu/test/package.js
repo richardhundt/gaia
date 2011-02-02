@@ -1,12 +1,13 @@
 import test.shapes.Point
 
 //export Point, Point3D
+
 class Point3D extends Point {
-    var z = 0
-    function move(x, y, z) {
-        super.move(x, y)
-        this.z = z
-    }
+   var z = 0
+   function move(x, y, z) {
+      super.move(x, y)
+      this.z = z
+   }
 }
 
 var p1 = new Point

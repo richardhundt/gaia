@@ -30,7 +30,7 @@ p:rule"statement" {
    + m.V"for_in_stmt"   * stmt_sep
    + m.V"while_stmt"    * stmt_sep
    + m.V"return_stmt"   * stmt_sep
-   + m.V"module_decl"   * stmt_sep
+   + m.V"package_decl"  * stmt_sep
    + m.V"import_stmt"   * stmt_sep
    + m.V"export_stmt"   * stmt_sep
    + m.V"class_decl"    * stmt_sep
@@ -50,7 +50,8 @@ p:rule"keyword" {
       m.P"var" + "function" + "class" + "is" + "with" + "new" + "object"
       + "null" + "true" + "false" + "typeof" + "return" + "in" + "for" + "throw"
       + "type" + "enum" + "like" + "delete" + "private" + "public" + "extends"
-      + "break" + "continue" + "module" + "import" + "export"
+      + "break" + "continue" + "module" + "import" + "export" + "try" + "catch"
+      + "finally"
    ) * -(m.V"alnum"+m.P"_")
 }
 p:match"ident" {
@@ -80,6 +81,7 @@ p:rule"term" {
    + m.V"rest"
    + m.V"true"
    + m.V"false"
+   + m.V"short_lambda"
    + m.V"array_literal"
    + m.V"table_literal"
    + m.V"func_literal"
@@ -87,7 +89,7 @@ p:rule"term" {
 p:match"null"  { m.P"null"  }
 p:match"true"  { m.P"true"  }
 p:match"false" { m.P"false" }
-p:match"rest"  { m.P"..."   }
+p:match"rest"  { m.P"..." }
 
 p:match"var_decl" {
    m.Cg(m.C"var" + m.C"let", "alloc") * s
@@ -102,14 +104,11 @@ p:match"expr_list" {
 p:rule"expr_stmt" {
    m.V"expr" / function(node)
       if node[1].oper == nil then
-         local format = "Syntax Error: %s on line %s"
-         error(string.format(format, "bare term", node.locn.line))
+         local format = "Syntax Error: %s on line %s - %s"
+         error(string.format(format, "bare term", node.locn.line, tostring(node)))
       end
       return node
    end
-}
-p:rule"label" {
-   m.Cg(m.V"ident", 'label') * m.P":"
 }
 p:match"for_stmt" {
    m.P"for" * s
@@ -118,7 +117,6 @@ p:match"for_stmt" {
    * p:expect"," * s * m.V"expr" * (s * "," * s * m.V"expr" + m.C(true)) * s
    * p:expect")" * s
    * m.V"cond_block"
-   --* m.P"do"^-1 * s * m.V"cond_block"
 }
 p:match"for_in_stmt" {
    m.P"for" * s
@@ -127,13 +125,12 @@ p:match"for_in_stmt" {
    * "in" * s * m.V"list_expr_noin" * s
    * p:expect")" * s
    * m.V"cond_block"
-   --* m.P"do"^-1 * s * m.V"cond_block"
 }
 p:match"for_in_vars" {
    m.V"ident" * (s * "," * s * m.V"ident")^0
 }
 p:match"while_stmt" {
-   (m.V"label" * s)^-1 * m.P"while" * s * p:expect"(" * s
+   m.P"while" * s * p:expect"(" * s
    * (m.V"expr" + m.C(true)) * s * p:expect")" * s
    * m.V"cond_block"
 }
@@ -158,10 +155,10 @@ p:match"finally_block" {
    m.P"finally" * s * m.V"cond_block"
 }
 p:match"break_stmt" {
-   m.P"break" * (s * m.V"ident")^-1
+   m.P"break"
 }
 p:match"continue_stmt" {
-   m.P"continue" * (s * m.V"ident")^-1
+   m.P"continue"
 }
 p:match"cond_block" {
    m.P"{" * s * (m.V"statement" * stmt_sep)^0 * s * p:expect"}"
@@ -183,8 +180,8 @@ p:rule"pair" {
    (m.C((m.V"alpha" + m.P'_') * (m.V"alnum" + m.P'_')^0) + m.P"[" * s * m.V"expr" * s * p:expect"]") * s
    * p:expect":" * s * m.V"expr"
 }
-p:match"expr_pairs" {
-   m.V"pair" * (s * "," * s * m.V"pair")^0
+p:match"short_lambda" {
+   m.P"{" * s * m.V"name_list" * s * m.P"=>" * s * m.V"expr_stmt" * s * p:expect"}"
 }
 p:match"range" {
    m.V"number" * s * ".." * s * m.V"number"
@@ -253,8 +250,8 @@ p:match"bind_stmt" {
       ) * s * m.V"expr_list")
    , gaia.parser.OpInfix.handler)
 }
-p:match"module_decl" {
-   m.P"module" * s * m.V"ident" * (s * "." * s * m.V"ident")^0
+p:match"package_decl" {
+   m.P"package" * s * m.V"ident" * (s * "." * s * m.V"ident")^0
 }
 p:match"import_stmt" {
    m.P"import" * s * m.V"ident" * (s * "." * s * m.V"ident")^0
@@ -267,6 +264,7 @@ p:match"export_stmt" {
 -- Expressions
 ------------------------------------------------------------------------------
 local expr_base = p:express"expr_base" :primary"term"
+
 expr_base:op_infix("||", "&&"   ):prec(3)
 expr_base:op_infix("|", "^", "&"):prec(6)
 expr_base:op_infix("!=", "=="   ):prec(7)
@@ -288,13 +286,10 @@ expr_base:op_circumfix"()":prec(50)
 -- that we have '.' precedence *around* '()' precedence
 expr_base:op_infix(".", "::"):prec(38) :expr"member_term"
 expr_base:op_postcircumfix"()":prec(39) :expr"list_expr"
-expr_base:op_infix(".", "::"):prec(40) :expr"member_term"
+--expr_base:op_infix(".", "::"):prec(40) :expr"member_term"
 
 expr_base:op_postcircumfix"[]":prec(38)
-expr_base:op_postcircumfix"[]":prec(40)
-
-expr_base:op_postcircumfix"{}":prec(38) :expr"expr_pairs"
-expr_base:op_postcircumfix"{}":prec(40) :expr"expr_pairs"
+--expr_base:op_postcircumfix"[]":prec(40)
 
 ------------------------------------------------------------------------------
 -- Full Expression

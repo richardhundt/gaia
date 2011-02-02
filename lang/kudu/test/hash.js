@@ -32,8 +32,5 @@ for (i=1,10000000) {
 
 print(h["answer"])
 
-h.each {
-    var k,v = ...
-    print("got: ", k~':'~v)
-}
+h.each({ k,v => print("got: "~k~", v: "~v) })
 

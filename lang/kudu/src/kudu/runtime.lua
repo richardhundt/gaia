@@ -2,6 +2,7 @@ local _G = _G
 module("kudu.runtime", package.seeall)
 
 require "sys"
+require "rex_onig"
 require "marshal"
 require "kudu.compiler"
 
@@ -153,6 +154,64 @@ Module.new = function(name)
    return self
 end
 
+RegExp = { } do
+
+   local rex = rex_onig
+
+   local samp = rex.new(".")
+   local meta = getmetatable(samp)
+   meta.__metatable = RegExp
+
+   local self = meta.__index
+   meta.methods = self
+
+   meta.alloc = function(patt, ...)
+      return rex.new(patt, ...)
+   end
+   setmetatable(RegExp, {
+      __call = function(class, _, patt, ...)
+         return meta.alloc(patt, ...)
+      end
+   })
+
+   function self:match(subj, ...)
+      return rex.match(subj, self, ...)
+   end
+   function self:gmatch(subj, ...)
+      local matches = { }
+      for m in rex.gmatch(subj, self, ...) do
+         matches[#matches + 1] = m
+      end
+      return kudu.array(matches)
+   end
+   function self:find(subj, ...)
+      return rex.find(subj, self, ...)
+   end
+   function self:tfind(subj, ...)
+      return rex.tfind(subj, self, ...)
+   end
+   function self:gsub(subj, repl, ...)
+      return rex.gsub(subj, self, repl, ...)
+   end
+   function self:split(subj, ...)
+      local matches = { }
+      for s, _1,_2,_3,_4,_5,_6,_7,_8,_9,_0 in rex.split(subj, self, ...) do
+         matches[#matches + 1] = _1
+         matches[#matches + 1] = _2
+         matches[#matches + 1] = _3
+         matches[#matches + 1] = _4
+         matches[#matches + 1] = _5
+         matches[#matches + 1] = _6
+         matches[#matches + 1] = _7
+         matches[#matches + 1] = _8
+         matches[#matches + 1] = _9
+         matches[#matches + 1] = _0
+      end
+      return kudu.array(matches)
+   end
+
+end
+
 kudu.package = { }
 kudu.package.create = function(name)
    local mod = Module.new(name)
@@ -200,6 +259,7 @@ kudu.class.create = function(name)
       if obj[key] ~= nil then return obj[key] end
       local attr = attrs[key]
       if attr then
+         local val
          if attr.default ~= nil then
             val = attr.default
             if type(val) == "table" then
@@ -288,9 +348,11 @@ kudu.alloc = function(class, ...)
    if class == nil then
       error("class is nil", 2)
    end
+   local meta = debug.getmetatable(class)
+   if meta.alloc then return meta.alloc() end
    local self = { }
    setmetatable(self, class)
-   local constructor = debug.getmetatable(class).methods.this
+   local constructor = meta.methods.this
    if constructor then constructor(self, ...) end
    return self
 end
@@ -420,11 +482,15 @@ Array.__set_index = function(self, key, val)
 end
 Array.__get_member = function(self, key)
    if key == "length" then
-      return #self.data + 1
+      return self.length
    else
       return Array[key]
    end
 end
+Array.__set_member = function(self, key, val)
+   self[key] = val
+end
+
 
 --[[
 Array.__index = function(self, key)
@@ -446,7 +512,7 @@ Array.getKeyValueIterator = function(self)
       else
          return nil
       end
-   end, self
+   end, self.data
 end
 Array.getValueIterator = function(self)
    local i =  0
@@ -454,19 +520,41 @@ Array.getValueIterator = function(self)
       local v = t[i]
       i = i + 1
       return v
-   end, self
+   end, self.data
 end
 Array.push = function(self, val)
    if val == nil then val = null end
+   self.length = self.length + 1
    self.data[#self.data + 1] = val
 end
 Array.pop = function(self)
+   if self.length < 1 then return null end
+   self.length = self.length - 1
    return table.remove(self.data)
 end
+Array.grep = function(self, func)
+   local out = { }
+   for v in self:getValueIterator() do
+      if func(nil, v) == true then
+         out[#out + 1] = v
+      end
+   end
+   return kudu.array(out)
+end
+Array.map = function(self, func)
+   local out = { }
+   for v in self:getValueIterator() do
+      local r = func(nil, v)
+      out[#out + 1] = r == nil and null or r
+   end
+   return kudu.array(out)
+end
+
 
 kudu.array = function(data)
-   local self = { data = data or { } }
+   local self  = { data = data or { } }
    self.data[0] = table.remove(self.data, 1)
+   self.length = #self.data
    return setmetatable(self, Array)
 end
 
@@ -580,6 +668,7 @@ _M.global.magic = _G
 _M.global.print = function(_, ...)
    return print(...)
 end
+_M.global.RegExp = RegExp
 _M.global.require = function(...) return _G.require(...) end
 _M.global.kudu = kudu
 

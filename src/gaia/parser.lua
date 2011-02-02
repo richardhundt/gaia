@@ -388,7 +388,7 @@ OpInfix.pattern = function(self, term)
       oper = lpeg.C(self.oper)
    end
    if self._expr then
-      expr = lpeg.V(self._expr)
+      expr = term + lpeg.V(self._expr)
    else
       expr = term
    end

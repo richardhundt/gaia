@@ -8,6 +8,7 @@ for (x=1, 10000000) {
 }
 print(r)
 */
+
 class Point {
    var x = 0
    var y = 0
@@ -28,6 +29,9 @@ class Point3D extends Point {
       this.z = z
    }
 }
+
+var s = "answer"
+print(s.replace('(%w)', { c => c.upper() }))
 var p = new Point3D()
 for (i in 1 .. 10000000) {
    p.move(i, i + 1, i + 2)

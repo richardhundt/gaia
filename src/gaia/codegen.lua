@@ -1,5 +1,11 @@
 module("gaia.codegen", package.seeall)
 
+local IDGEN = 9
+local function genid()
+   IDGEN = IDGEN + 1
+   return '_'..IDGEN
+end
+
 local function class(class)
    class.__index = class
    setmetatable(class, {
@@ -12,19 +18,17 @@ local function class(class)
 end
 local LINE = 1
 local function line(node, buf)
-   if node.locn then
-      if node.locn.line > LINE then
-         buf[#buf + 1] = string.rep("\n", node.locn.line - LINE)
-         LINE = node.locn.line
-      end
+   if node.line and node.line > LINE then
+      buf[#buf + 1] = string.rep("\n", node.line - LINE)
+      LINE = node.line
    end
 end
 
 Id = class{ tag = "Id" }
 Id.render = function(self, buf)
+   line(self, buf)
    self[1] = self[1]:gsub("[()]", "__")
    buf[#buf + 1] = self[1]
-   line(self, buf)
 end
 
 Block = class{ tag = "Block" }
@@ -39,20 +43,20 @@ end
 
 Local = class{ tag = "Local" }
 Local.render = function(self, buf)
-   buf[#buf + 1] = "local"
+   line(self, buf)
    local lhs, rhs = self[1], self[2]
+   buf[#buf + 1] = 'local'
    for i=1, #lhs do
       lhs[i]:render(buf)
-      if i ~= #lhs then buf[#buf + 1] = "," end
+      if i ~= #lhs then buf[#buf + 1] = ',' end
    end
-   if rhs and #rhs > 0 then
-      buf[#buf + 1] = "="
+   if rhs then
+      buf[#buf + 1] = '='
       for i=1, #rhs do
          rhs[i]:render(buf)
-         if i ~= #rhs then buf[#buf + 1] = "," end
+         if i ~= #rhs then buf[#buf + 1] = ',' end
       end
    end
-   line(self, buf)
 end
 
 local binops = {
@@ -70,16 +74,18 @@ local binops = {
    ["pow"] = "^";
    ["and"] = "and";
    ["or"] = "or";
-   ["concat"] = "~";
+   ["concat"] = "..";
 }
 
 local unaryops = {
    ["not"] = "not";
    ["unm"] = "-";
+   ["len"] = "#";
 }
 
 Op = class{ tag = "Op" }
 Op.render = function(self, buf)
+   line(self, buf)
    if binops[self[1]] then
       self[2]:render(buf)
       buf[#buf + 1] = binops[self[1]]
@@ -88,7 +94,6 @@ Op.render = function(self, buf)
       buf[#buf + 1] = unaryops[self[1]]
       self[2]:render(buf)
    end
-   line(self, buf)
 end
 
 Call = class{ tag = "Call" }
@@ -105,6 +110,7 @@ end
 
 Function = class{ tag = "Function" }
 Function.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = "function"
    buf[#buf + 1] = "("
    for i=1, #self[1] do
@@ -116,35 +122,35 @@ Function.render = function(self, buf)
       self[2][i]:render(buf)
    end
    buf[#buf + 1] = "end"
-   line(self, buf)
 end
 
 Nil = class{ tag = "Nil" }
 Nil.render = function(self, buf)
-   buf[#buf + 1] = "nil"
    line(self, buf)
+   buf[#buf + 1] = "nil"
 end
 
 True = class{ tag = "True"; true }
 True.render = function(self, buf)
-   buf[#buf + 1] = "true"
    line(self, buf)
+   buf[#buf + 1] = "true"
 end
 
 False = class{ tag = "False"; false }
 False.render = function(self, buf)
-   buf[#buf + 1] = "false"
    line(self, buf)
+   buf[#buf + 1] = "false"
 end
 
 Rest = class{ tag = "Rest" }
 Rest.render = function(self, buf)
-   buf[#buf + 1] = "..."
    line(self, buf)
+   buf[#buf + 1] = "..."
 end
 
 String = class{ tag = "String" }
 String.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = string.format("%q", self[1])
 end
 
@@ -159,11 +165,11 @@ Ops.render = function(self, buf)
    for i=1, #self do
       self[i]:render(buf)
    end
-   line(self, buf)
 end
 
 Set = class{ tag = "Set" }
 Set.render = function(self, buf)
+   line(self, buf)
    local lhs, rhs = self[1], self[2]
    for i=1, #lhs do
       lhs[i]:render(buf)
@@ -174,11 +180,11 @@ Set.render = function(self, buf)
       rhs[i]:render(buf)
       if i ~= #rhs then buf[#buf + 1] = "," end
    end
-   line(self, buf)
 end
 
 Table = class{ tag = "Table" }
 Table.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = "{"
    for k,v in pairs(self) do
       if v.tag == "Pair" then
@@ -199,39 +205,51 @@ Table.render = function(self, buf)
       buf[#buf + 1] = ";"
    end
    buf[#buf + 1] = "}"
-   line(self, buf)
 end
 
 Pair = class{ tag = "Pair" }
 Pair.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = "["
    self[1]:render(buf)
    buf[#buf + 1] = "]"
    buf[#buf + 1] = "="
    self[2]:render(buf)
-   line(self, buf)
+end
+
+local function is_scalar(node)
+   return
+      node.tag == "True"   or
+      node.tag == "False"  or
+      node.tag == "Nil"    or
+      node.tag == "String" or
+      node.tag == "Number" or
+      node.tag == "Function"
 end
 
 Index = class{ tag = "Index" }
 Index.render = function(self, buf)
+   line(self, buf)
+   if is_scalar(self[1]) then
+      buf[#buf + 1] = "("
+   end
    self[1]:render(buf)
+   if is_scalar(self[1]) then
+      buf[#buf + 1] = ")"
+   end
    buf[#buf + 1] = "["
    self[2]:render(buf)
    buf[#buf + 1] = "]"
-   line(self, buf)
 end
 
 Invoke = class{ tag = "Invoke" }
 Invoke.render = function(self, buf)
    line(self, buf)
    self[1]:render(buf)
-   buf[#buf + 1] = "["
-   self[2]:render(buf)
-   buf[#buf + 1] = "]"
+   buf[#buf + 1] = ":"
+   buf[#buf + 1] = self[2]
    buf[#buf + 1] = "("
-   self[1]:render(buf)
    if #self >= 3 then
-      buf[#buf + 1] = ","
       for i=3, #self do
          self[i]:render(buf)
          if i ~= #self then buf[#buf + 1] = "," end
@@ -242,21 +260,27 @@ end
 
 Return = class{ tag = "Return" }
 Return.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = 'return'
    for i=1, #self do
       self[i]:render(buf)
    end
-   line(self, buf)
 end
 
 If = class{ tag = "If" }
 If.render = function(self, buf)
-   buf[#buf + 1] = "if"
+   line(self, buf)
+   --buf[#buf + 1] = "if"
    for i=1, #self, 2 do
       if i == #self and i % 2 == 1 then
          buf[#buf + 1] = "else"
          self[i]:render(buf)
       else
+         if i==1 then
+            buf[#buf + 1] = "if"
+         else
+            buf[#buf + 1] = "elseif"
+         end
          self[i]:render(buf)
          buf[#buf + 1] = "then"
          for i=1, #self[i + 1] do
@@ -265,11 +289,11 @@ If.render = function(self, buf)
       end
    end
    buf[#buf + 1] = "end"
-   line(self, buf)
 end
 
 For = class{ tag = "For" }
 For.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = "for"
    if not self[4] then self[4] = Number(1) end
    self[1]:render(buf)
@@ -284,11 +308,11 @@ For.render = function(self, buf)
       self[5][i]:render(buf)
    end
    buf[#buf + 1] = "end"
-   line(self, buf)
 end
 
 ForIn = class{ tag = "ForIn" }
 ForIn.render = function(self, buf)
+   line(self, buf)
    local vars = self[1]
    local exps = self[2]
    local body = self[3]
@@ -307,17 +331,33 @@ ForIn.render = function(self, buf)
       body[i]:render(buf)
    end
    buf[#buf + 1] = "end"
-   line(self, buf)
 end
 
 While = class{ tag = "While" }
 While.render = function(self, buf)
+   line(self, buf)
    buf[#buf + 1] = "while"
    self[1]:render(buf)
    buf[#buf + 1] = "do"
    Block.render(self[2], buf)
    buf[#buf + 1] = "end"
+end
+
+Repeat = class{ tag = "Repeat" }
+Repeat.render = function(self, buf)
    line(self, buf)
+   buf[#buf + 1] = "repeat"
+   Block.render(self[1], buf)
+   buf[#buf + 1] = "until"
+   self[2]:render(buf)
+end
+
+Bracket = class{ tag = "Bracket" }
+Bracket.render = function(self, buf)
+   line(self, buf)
+   buf[#buf + 1] = "("
+   self[1]:render(buf)
+   buf[#buf + 1] = ")"
 end
 
 Chunk = class{ tag = "Chunk" }

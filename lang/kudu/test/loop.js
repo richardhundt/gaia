@@ -45,7 +45,7 @@ var p = new Point
 p.x = 42
 
 for (i in 0..10000000) {
-    p.move(i, i + 1)// << 1)
+    p.move(i, i + 1 << 1)
 }
 
 var t = { a : 42, b : 69 }
