@@ -289,11 +289,11 @@ expr_base:op_postcircumfix"()":prec(39) :expr"list_expr"
 expr_base:op_infix(".", "::"):prec(40)
 
 expr_base:op_postcircumfix"[]":prec(38)
-expr_base:op_postcircumfix{".[","]"}:prec(39)
-expr_base:op_postcircumfix{"::[","]"}:prec(39)
+expr_base:op_postcircumfix{m.P"." * s * "[","]", ".["}:prec(39)
+expr_base:op_postcircumfix{m.P"::" * s * "[","]", "::["}:prec(39)
 expr_base:op_postcircumfix"[]":prec(40)
-expr_base:op_postcircumfix{".[","]"}:prec(41)
-expr_base:op_postcircumfix{"::[","]"}:prec(41)
+expr_base:op_postcircumfix{m.P"." * s * "[","]", ".["}:prec(41)
+expr_base:op_postcircumfix{m.P"::" * s * "[","]", "::["}:prec(41)
 
 ------------------------------------------------------------------------------
 -- Full Expression

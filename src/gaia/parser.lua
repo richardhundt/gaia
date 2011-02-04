@@ -503,10 +503,11 @@ OpPostCircumfix.new = function(oper)
    if type(oper) == "string" then
       start = string.sub(oper, 1, 1)
       close = string.sub(oper, 2, 2)
+      oper  = start
    else
       start = oper[1]
       close = oper[2]
-      oper  = table.concat(oper, "")
+      oper  = oper[3]
    end
    local self = {
       oper  = oper,
@@ -534,7 +535,7 @@ OpPostCircumfix.pattern = function(self, term, expr)
    end
    return lpeg.Cf(
       lpeg.Cg(term) *
-      lpeg.Cg(ws * lpeg.C(self.start) * ws * lpeg.Cg(expr^-1) * ws * self.close)^0
+      lpeg.Cg(ws * lpeg.Cc(self.oper) * self.start * ws * lpeg.Cg(expr^-1) * ws * self.close)^0
    , self.handler)
 end
 OpPostCircumfix.handler = function(l, s, e, ...)

@@ -233,7 +233,10 @@ function def:op_infix(node)
       else
          b = self:process(node[2])
       end
-      return a.."."..b
+      if node.is_lhs then
+         return { a..':__set_member('..string.format('%q', b)..', %s)' }
+      end
+      return a..":__get_member("..string.format('%q', b)..")"
    end
    if o == "::" then
       return a..'.'..self:process(node[2])
