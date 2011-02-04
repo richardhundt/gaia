@@ -1,4 +1,6 @@
 var a, b, c = { }, { }
-a.foo = function() { return function() { return b } }
-a.foo()()['bar'], c = 42, 69
-print(b.bar, c)
+a.foo = { }
+a.foo['bar'], c = 42, 69
+print(a.foo['bar'], c)
+a.foo = function() { print("Hey Globe from " ~ this) }
+a.foo()

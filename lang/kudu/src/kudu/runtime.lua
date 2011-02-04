@@ -194,20 +194,11 @@ RegExp = { } do
       return rex.gsub(subj, self, repl, ...)
    end
    function self:split(subj, ...)
-      local matches = { }
-      for s, _1,_2,_3,_4,_5,_6,_7,_8,_9,_0 in rex.split(subj, self, ...) do
-         matches[#matches + 1] = _1
-         matches[#matches + 1] = _2
-         matches[#matches + 1] = _3
-         matches[#matches + 1] = _4
-         matches[#matches + 1] = _5
-         matches[#matches + 1] = _6
-         matches[#matches + 1] = _7
-         matches[#matches + 1] = _8
-         matches[#matches + 1] = _9
-         matches[#matches + 1] = _0
+      local frags = { }
+      for s in rex.split(subj, self, ...) do
+         frags[#frags + 1] = s
       end
-      return kudu.array(matches)
+      return kudu.array(frags)
    end
 
 end
@@ -423,7 +414,8 @@ end
 
 Table = { }
 Table.__index = Table
-Table.getKeyValueIterator = function(self)
+Table.__tostring = function(self) return '[Table: '..sys.refaddr(self)..']' end
+Table.__pairs = function(self)
    local k, v
    if #self > 0 then self = #self end
    return function(t)
@@ -431,7 +423,7 @@ Table.getKeyValueIterator = function(self)
       return k, v
    end, self
 end
-Table.getKeyIterator = function(self)
+Table.__keys = function(self)
    local k
    if #self > 0 then self = #self end
    return function(t)
@@ -439,7 +431,7 @@ Table.getKeyIterator = function(self)
       return k
    end, self
 end
-Table.getValueIterator = function(self)
+Table.__values = function(self)
    local k
    if #self > 0 then self = #self end
    return function(t)
@@ -501,7 +493,7 @@ Array.__index = function(self, key)
    end
 end
 --]]
-Array.getKeyValueIterator = function(self)
+Array.__pairs = function(self)
    local i = 0
    return function(t)
       local v = t[i]
@@ -514,7 +506,7 @@ Array.getKeyValueIterator = function(self)
       end
    end, self.data
 end
-Array.getValueIterator = function(self)
+Array.__values = function(self)
    local i =  0
    return function(t)
       local v = t[i]
@@ -534,7 +526,7 @@ Array.pop = function(self)
 end
 Array.grep = function(self, func)
    local out = { }
-   for v in self:getValueIterator() do
+   for v in self:__values() do
       if func(nil, v) == true then
          out[#out + 1] = v
       end
@@ -543,7 +535,7 @@ Array.grep = function(self, func)
 end
 Array.map = function(self, func)
    local out = { }
-   for v in self:getValueIterator() do
+   for v in self:__values() do
       local r = func(nil, v)
       out[#out + 1] = r == nil and null or r
    end
@@ -560,13 +552,13 @@ end
 
 Range = { }
 Range.__index = Range
-Range.getKeyValueIterator = function(self)
-   return self:getValueIterator()
+Range.__pairs = function(self)
+   return self:__values()
 end
-Range.getKeyIterator = function(self)
-   return self:getValueIterator()
+Range.__keys = function(self)
+   return self:__values()
 end
-Range.getValueIterator = function(self)
+Range.__values = function(self)
    local cur = self[1] - 1
    local max = self[2]
    return function(t)
@@ -634,36 +626,41 @@ end
 kudu.init = function() end
 
 local bit = require"bit"
-_M.global["(bor)"] = bit.bor
-_M.global["(band)"] = bit.band
-_M.global["(bnot)"] = bit.bnot
-_M.global["(bxor)"] = bit.bxor
-_M.global["(lshift)"] = bit.lshift
-_M.global["(rshift)"] = bit.rshift
-_M.global["(arshift)"] = bit.arshift
-_M.global["(null)"] = kudu.null
-_M.global["(alloc)"] = kudu.alloc
-_M.global["(table)"] = kudu.table
-_M.global["(array)"] = kudu.array
-_M.global["(range)"] = kudu.range
-_M.global["(type_assert)"] = kudu.type_assert
-_M.global["(class_create)"] = kudu.class.create
-_M.global["(class_extend)"] = kudu.class.extend
-_M.global["(class_add_meth)"] = kudu.class.add_method
-_M.global["(class_add_attr)"] = kudu.class.add_attrib
-_M.global["(class_mixin)"] = kudu.class.mixin
-_M.global["(role_create)"] = kudu.role.create
-_M.global["(role_add_meth)"] = kudu.role.add_method
-_M.global["(role_add_attr)"] = kudu.role.add_attrib
-_M.global["(role_mixin)"] = kudu.role.mixin
-_M.global["(throw)"] = kudu.throw
-_M.global["(try_catch)"] = kudu.try_catch
-_M.global["(select)"] = select
-_M.global["(unpack)"] = unpack
-_M.global["(package_create)"] = kudu.package.create
-_M.global["(package_export)"] = kudu.package.export
-_M.global["(package_import)"] = kudu.package.import
-_M.global["(init)"] = kudu.init
+_M.global["__bor__"] = bit.bor
+_M.global["__band__"] = bit.band
+_M.global["__bnot__"] = bit.bnot
+_M.global["__bxor__"] = bit.bxor
+_M.global["__lshift__"] = bit.lshift
+_M.global["__rshift__"] = bit.rshift
+_M.global["__arshift)"] = bit.arshift
+_M.global["__null__"] = kudu.null
+_M.global["__alloc__"] = kudu.alloc
+_M.global["__table__"] = kudu.table
+_M.global["__array__"] = kudu.array
+_M.global["__range__"] = kudu.range
+_M.global["__type_assert__"] = kudu.type_assert
+_M.global["__class_create__"] = kudu.class.create
+_M.global["__class_extend__"] = kudu.class.extend
+_M.global["__class_add_meth__"] = kudu.class.add_method
+_M.global["__class_add_attr__"] = kudu.class.add_attrib
+_M.global["__class_mixin__"] = kudu.class.mixin
+_M.global["__role_create__"] = kudu.role.create
+_M.global["__role_add_meth__"] = kudu.role.add_method
+_M.global["__role_add_attr__"] = kudu.role.add_attrib
+_M.global["__role_mixin__"] = kudu.role.mixin
+_M.global["__throw__"] = kudu.throw
+_M.global["__try_catch__"] = kudu.try_catch
+_M.global["__select__"] = select
+_M.global["__unpack__"] = unpack
+_M.global["__package_create__"] = kudu.package.create
+_M.global["__package_export__"] = kudu.package.export
+_M.global["__package_import__"] = kudu.package.import
+_M.global["__init__"] = kudu.init
+_M.global["__invoke_late__"] = function(base, meth, this, ...)
+   local func = base[meth]
+   this = this == nil and base or this
+   return func(this, ...)
+end
 _M.global.magic = _G
 _M.global.print = function(_, ...)
    return print(...)
@@ -672,9 +669,6 @@ _M.global.RegExp = RegExp
 _M.global.require = function(...) return _G.require(...) end
 _M.global.kudu = kudu
 
-for k,v in pairs(_M.global) do
-   _M.global[string.gsub(k, '[()]', '__')] = v
-end
 function kudu.load()
    setfenv(2, kudu.package.current.environ)
 end

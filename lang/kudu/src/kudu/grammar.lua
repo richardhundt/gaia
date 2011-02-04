@@ -238,10 +238,10 @@ p:match"role_head" {
    m.V"class_with"^-1
 }
 p:rule"member_term" {
-   m.V"ident" + m.V"late_bind"
+   m.V"late_bind" + m.V"ident" + m.V"expr"
 }
 p:match"late_bind" {
-   m.P"[" * m.V"expr" * p:expect"]"
+   m.P"[" * s * m.V"expr" * s * p:expect"]"
 }
 p:match"bind_stmt" {
    m.Cf(
@@ -284,12 +284,16 @@ expr_base:op_circumfix"()":prec(50)
 
 -- this weirdness is needed to support foo.bar().baz() so
 -- that we have '.' precedence *around* '()' precedence
-expr_base:op_infix(".", "::"):prec(38) :expr"member_term"
+expr_base:op_infix(".", "::"):prec(38)
 expr_base:op_postcircumfix"()":prec(39) :expr"list_expr"
---expr_base:op_infix(".", "::"):prec(40) :expr"member_term"
+expr_base:op_infix(".", "::"):prec(40)
 
 expr_base:op_postcircumfix"[]":prec(38)
---expr_base:op_postcircumfix"[]":prec(40)
+expr_base:op_postcircumfix{".[","]"}:prec(39)
+expr_base:op_postcircumfix{"::[","]"}:prec(39)
+expr_base:op_postcircumfix"[]":prec(40)
+expr_base:op_postcircumfix{".[","]"}:prec(41)
+expr_base:op_postcircumfix{"::[","]"}:prec(41)
 
 ------------------------------------------------------------------------------
 -- Full Expression

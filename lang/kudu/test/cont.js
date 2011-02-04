@@ -5,6 +5,7 @@ while (i < 10) {
         print("got here")
         continue
     }
+    if (i == 5) { break }
     print(i, i % 2)
 }
 

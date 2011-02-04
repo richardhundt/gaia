@@ -269,9 +269,12 @@ Express.pattern = function(self, gram)
    local prev = lpeg.V(self.prim)
    local name, patt, op, prevop
    for i=1, #op_table do
-      IDGEN = IDGEN + 1
       op = op_table[i]
-      name = tostring(IDGEN)
+      name = op._name
+      if not name then
+         IDGEN = IDGEN + 1
+         name = tostring(IDGEN)
+      end
       patt = op:pattern(prev, expr)
       gram[name] = patt
       prev = lpeg.V(name)
@@ -379,6 +382,10 @@ OpInfix.expr = function(self, expr)
    self._expr = expr
    return self
 end
+OpInfix.key = function(self, name)
+   self._name = name
+   return self
+end
 OpInfix.pattern = function(self, term)
    local ws = lpeg.V"skip"
    local oper, expr
@@ -388,7 +395,7 @@ OpInfix.pattern = function(self, term)
       oper = lpeg.C(self.oper)
    end
    if self._expr then
-      expr = term + lpeg.V(self._expr)
+      expr = lpeg.V(self._expr)
    else
       expr = term
    end
@@ -516,6 +523,10 @@ OpPostCircumfix.expr = function(self, expr)
    self._expr = expr
    return self
 end
+OpPostCircumfix.key = function(self, name)
+   self._name = name
+   return self
+end
 OpPostCircumfix.pattern = function(self, term, expr)
    local ws = lpeg.V"skip"
    if self._expr then
@@ -523,10 +534,8 @@ OpPostCircumfix.pattern = function(self, term, expr)
    end
    return lpeg.Cf(
       lpeg.Cg(term) *
-      lpeg.Cg(
-         ws * lpeg.C(self.start) * ws * lpeg.Cg(expr^-1) * ws * self.close
-      )^0, self.handler
-   )
+      lpeg.Cg(ws * lpeg.C(self.start) * ws * lpeg.Cg(expr^-1) * ws * self.close)^0
+   , self.handler)
 end
 OpPostCircumfix.handler = function(l, s, e, ...)
    return ASTNode { tag = "op_postcircumfix", oper = s; l, e, ... }

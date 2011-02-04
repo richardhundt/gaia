@@ -30,8 +30,6 @@ class Point3D extends Point {
    }
 }
 
-var s = "answer"
-print(s.replace('(%w)', { c => c.upper() }))
 var p = new Point3D()
 for (i in 1 .. 10000000) {
    p.move(i, i + 1, i + 2)
