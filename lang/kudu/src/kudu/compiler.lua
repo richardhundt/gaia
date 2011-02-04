@@ -99,7 +99,7 @@ end
 local IDGEN = 9
 Context.genid = function()
    IDGEN = IDGEN + 1
-   return "_"..IDGEN
+   return "__auto_"..IDGEN..'__'
 end
 
 function def:block(node)
@@ -288,7 +288,7 @@ function def:op_prefix(node)
    elseif o == "--" then
       return a..' = '..a..' - 1'
    elseif o == "new" then
-      return '__alloc__('..a..')'
+      return { '__alloc__(%s)', a }
    end
 end
 function def:op_postfix(node)
@@ -330,16 +330,20 @@ function def:op_postcircumfix(node)
             return this..'.'..meth..'('..table.concat(args, ', ')..')'
          end
          return this..':'..meth..'('..table.concat(expr, ', ')..')'
+
       elseif node[1].oper == "::" then
          local this = self:process(node[1][1])
          local meth = node[1][2][1]
          return this..'.'..meth..'('..table.concat(expr, ', ')..')'
+
       elseif node[1].oper == "new" then
-         local base = { self:process(node[1]) }
+         local base = self:process(node[1])
          for i=1, #expr do
             base[#base + 1] = expr[i]
          end
-         return table.concat(base, ', ')
+         local tmpl = table.remove(base, 1)
+         return string.format(tmpl, table.concat(base, ', '))
+
       elseif node[1].oper == ".[" then
          local this = self:process(node[1][1])
          local meth = self:process(node[1][2])
@@ -350,10 +354,12 @@ function def:op_postcircumfix(node)
             args = { this, meth, 'nil', unpack(expr) }
          end
          return '__invoke_late__('..table.concat(args, ', ')..')'
+
       elseif node[1].oper == '::[' then
          local this = self:process(node[1][1])
          local meth = self:process(node[1][2])
          return this..'['..meth..']('..table.concat(expr, ', ')..')'
+
       else
          local iden = node[1]
          local args = { }
@@ -365,6 +371,7 @@ function def:op_postcircumfix(node)
          local args = { 'this', unpack(expr) }
          return base..'('..table.concat(args, ', ')..')'
       end
+
    elseif oper == "[" then
       local base = self:process(node[1])
       if node.is_lhs then
@@ -405,10 +412,9 @@ function def:bind_stmt(node)
       local rhs_expr = rhs_expr_list[i]
       local lhs_oper = lhs_expr[1].oper
       if not(
-         lhs_oper == '.' or
-         lhs_oper == '[' or
-         lhs_oper == '::' or
-         lhs_expr[1].tag == "ident"
+         lhs_oper == '.' or lhs_oper == '[' or
+         lhs_oper == '.[' or lhs_oper == '::' or
+         lhs_oper == '::[' or lhs_expr[1].tag == "ident"
       ) then
          self:error('invalid left hand side in assignment')
       end
@@ -672,8 +678,9 @@ function def:try_catch(node)
    end
 
    self:emit"do"
-   self:emit("local __try_retval__ = __try_catch__("..try_func..", "..catch_func..", "..finally_func..')')
-   self:emit("if #__try_retval__ > 0 then return __select__(1, __unpack__(__try_retval__)) end")
+   local temp = self:genid()
+   self:emit("local "..temp.." = __try_catch__("..try_func..", "..catch_func..", "..finally_func..')')
+   self:emit("if #"..temp.." > 0 then return __select__(1, __unpack__("..temp..")) end")
    self:emit"end"
 end
 

@@ -7,13 +7,18 @@ object Explosive {
 class Point {
     var x
     var y
+    function this(x, y) {
+        this.x = x
+        this.y = y
+        print("constructed a: ", this, "with:", x, y)
+    }
     function move(x, y) {
         this.x = x || 0
         this.y = y || 0
     }
 }
 
-var p = new Point
+var p = new Point(42, 69)
 p.move(1)
 
 class Point3D extends Point with Explosive {
@@ -31,7 +36,7 @@ class Point3D extends Point with Explosive {
     }
 }
 
-var p = new Point3D
+var p = new Point3D(11, 22)
 p.move(1, 2, 3)
 p.move(1, 2, 3)
 p.explode()
@@ -41,7 +46,7 @@ var closure = p.lambda(42)
 
 print("the answer is: ", closure()[0])
 
-var p = new Point
+var p = new Point(31,42)
 p.x = 42
 
 for (i in 0..10000000) {

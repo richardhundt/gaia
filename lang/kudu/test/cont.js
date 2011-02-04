@@ -5,7 +5,11 @@ while (i < 10) {
         print("got here")
         continue
     }
-    if (i == 5) { break }
+    for (i in 1..10) {
+        if (i > 3) break
+        print("inner:", i)
+    }
+    if (i == 5) break
     print(i, i % 2)
 }
 
