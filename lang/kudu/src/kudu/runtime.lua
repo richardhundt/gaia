@@ -2,7 +2,7 @@ local _G = _G
 module("kudu.runtime", package.seeall)
 
 require "sys"
-require "rex_onig"
+require "sys.sock"
 require "marshal"
 require "kudu.compiler"
 
@@ -10,15 +10,6 @@ local rawget, rawset, type = rawget, rawset, type
 local getfenv, setfenv, assert = getfenv, setfenv, assert
 local getmetatable, setmetatable = getmetatable, setmetatable
 local pairs, ipairs, rawequal, next = pairs, ipairs, rawequal, next
-
-function kpairs(t)
-   local k
-   if #t > 0 then k = #t end
-   return function()
-      k, v = next(t, k)
-      return k, v
-   end
-end
 
 local _M = _M
 _M.global = { }
@@ -61,6 +52,14 @@ Null    = Type.new("Null", function(v) return v == null end)
 Number  = Type.new("Number", function(v) return type(v) == "number" end)
 String  = Type.new("String", function(v) return type(v) == "string" end)
 Boolean = Type.new("Boolean", function(v) return type(v) == "boolean" end)
+
+do
+   local string_meta = getmetatable("")
+   string_meta.__index.__get_member = function(self, name)
+      if name == 'length' then return #self end
+      return string_meta.__index[name]
+   end
+end
 
 MetaClass = {
    __tostring = function(self) return self.name end;
@@ -154,55 +153,6 @@ Module.new = function(name)
    return self
 end
 
-RegExp = { } do
-
-   local rex = rex_onig
-
-   local samp = rex.new(".")
-   local meta = getmetatable(samp)
-   meta.__metatable = RegExp
-
-   local self = meta.__index
-   meta.methods = self
-
-   meta.alloc = function(patt, ...)
-      return rex.new(patt, ...)
-   end
-   setmetatable(RegExp, {
-      __call = function(class, _, patt, ...)
-         return meta.alloc(patt, ...)
-      end
-   })
-
-   function self:match(subj, ...)
-      return rex.match(subj, self, ...)
-   end
-   function self:gmatch(subj, ...)
-      local matches = { }
-      for m in rex.gmatch(subj, self, ...) do
-         matches[#matches + 1] = m
-      end
-      return kudu.array(matches)
-   end
-   function self:find(subj, ...)
-      return rex.find(subj, self, ...)
-   end
-   function self:tfind(subj, ...)
-      return rex.tfind(subj, self, ...)
-   end
-   function self:gsub(subj, repl, ...)
-      return rex.gsub(subj, self, repl, ...)
-   end
-   function self:split(subj, ...)
-      local frags = { }
-      for s in rex.split(subj, self, ...) do
-         frags[#frags + 1] = s
-      end
-      return kudu.array(frags)
-   end
-
-end
-
 kudu.package = { }
 kudu.package.create = function(name)
    local mod = Module.new(name)
@@ -236,7 +186,7 @@ kudu.class.create = function(name)
       __metatable = Class;
       __index     = cdata;
       __tostring  = function(class) return name end;
-      __call      = function(class, _, ...)
+      __call      = function(class, ...)
          local self = { }
          setmetatable(self, class)
          local constructor = meths.this
@@ -288,6 +238,12 @@ kudu.class.create = function(name)
    end
 
    class.__index = meths
+   class.__get_member = function(class, key)
+      return cdata[key]
+   end
+   class.__set_member = function(class, key, val)
+      cdata[key] = val
+   end
    meths.__get_member = __index;
    meths.__set_member = __newindex;
    meths.__to_string = function(obj) return "["..name..": "..sys.refaddr(obj).."]" end
@@ -297,21 +253,21 @@ kudu.class.create = function(name)
 
    return class
 end
-kudu.class.add_method = function(class, name, body)
+kudu.class.add_method = function(class, name, body, modifier)
    local meta = debug.getmetatable(class)
-   local fenv = setmetatable({ }, { __index = getfenv(body) })
-   local parent_methods
-   if meta.parent then
-      local parent_meta = debug.getmetatable(meta.parent)
-      parent_methods = parent_meta and parent_meta.methods or { }
+   if modifier == 'static' then
+      meta.static[name] = body
+   else
+      meta.methods[name] = body
    end
-   fenv.super = parent_methods
-   setfenv(body, fenv)
-   meta.methods[name] = body
 end
-kudu.class.add_attrib = function(class, name, default)
+kudu.class.add_attrib = function(class, name, default, modifier)
    local meta = debug.getmetatable(class)
-   meta.attribs[name] = { default = default == nil and null or default }
+   if modifier == 'static' then
+      meta.static[name] = default == nil and null or default
+   else
+      meta.attribs[name] = { default = default == nil and null or default }
+   end
 end
 kudu.class.add_classdata = function(class, name, info)
    local meta = debug.getmetatable(class)
@@ -324,6 +280,7 @@ kudu.class.extend = function(class, base)
    setmetatable(meta.attribs, { __index = base_meta.attribs })
    setmetatable(meta.methods, { __index = base_meta.methods })
    setmetatable(meta.static,  { __index = base_meta.static  })
+   return base_meta.methods
 end
 kudu.class.mixin = function(class, role)
    local meta = debug.getmetatable(role)
@@ -415,31 +372,11 @@ end
 Table = { }
 Table.__index = Table
 Table.__tostring = function(self) return '[Table: '..sys.refaddr(self)..']' end
-Table.__pairs = function(self)
-   local k, v
-   if #self > 0 then self = #self end
-   return function(t)
-      k, v = next(t, k)
-      return k, v
-   end, self
-end
-Table.__keys = function(self)
-   local k
-   if #self > 0 then self = #self end
-   return function(t)
-      k = next(t, k)
-      return k
-   end, self
-end
-Table.__values = function(self)
-   local k
-   if #self > 0 then self = #self end
-   return function(t)
-      k, v = next(t, k)
-      return v
-   end, self
+Table.__each = function(self)
+   return pairs(self)
 end
 Table.__get_member = function(self, key)
+   if key == 'length' then return #self end
    return self[key]
 end
 Table.__set_member = function(self, key, val)
@@ -451,14 +388,6 @@ end
 Table.__set_index = function(self, key, val)
    self[key] = val
 end
---[[ currently abandoned, for consideration
-Table.__get_symbol = function(self, key)
-   return self[key]
-end
-Table.__set_symbol = function(self, key, val)
-   self[key] = val
-end
---]]
 
 function kudu.table(table)
    return setmetatable(table, Table)
@@ -466,10 +395,21 @@ end
 
 Array = { }
 Array.__index = Array
+Array.__call = function(self, ...)
+   if type(self.data[0]) == 'function' then
+      local args = { unpack(self.data) }
+      for i=1, select('#', ...) do
+         args[#args + 1] = select(i, ...)
+      end
+      return self.data[0](unpack(args))
+   end
+   error("Array is not callable", 2)
+end
 Array.__get_index = function(self, key)
    return self.data[key]
 end
 Array.__set_index = function(self, key, val)
+   if key >= self.length then self.length = key + 1 end
    self.data[key] = val
 end
 Array.__get_member = function(self, key)
@@ -482,91 +422,86 @@ end
 Array.__set_member = function(self, key, val)
    self[key] = val
 end
-
-
---[[
-Array.__index = function(self, key)
-   if key == "length" then
-      return #self + 1
-   else
-      return Array[key]
-   end
-end
---]]
-Array.__pairs = function(self)
+Array.__each = function(self)
    local i = 0
-   return function(t)
-      local v = t[i]
+   local t = self.data
+   local l = self.length
+   return function()
+      if i >= l then return nil end
       local k = i
+      local v = t[k]
       i = i + 1
-      if v ~= nil then
-         return k, v
-      else
-         return nil
-      end
-   end, self.data
-end
-Array.__values = function(self)
-   local i =  0
-   return function(t)
-      local v = t[i]
-      i = i + 1
-      return v
-   end, self.data
+      return k, v
+   end
 end
 Array.push = function(self, val)
-   if val == nil then val = null end
+   self.data[self.length] = val
    self.length = self.length + 1
-   self.data[#self.data + 1] = val
 end
 Array.pop = function(self)
-   if self.length < 1 then return null end
+   if self.length < 1 then return nil end
    self.length = self.length - 1
-   return table.remove(self.data)
+   local val = self.data[self.length]
+   self.data[self.length] = nil
+   return val
+end
+Array.shift = function(self)
+   if self.length < 1 then return nil end
+   local val = self.data[0]
+   self.length = self.length - 1
+   for i=0, self.length do
+      self.data[i] = self.data[i + 1]
+   end
+   self.data[self.length] = nil
+   return val
+end
+Array.unshift = function(self, val)
+   for i=self.length, 0, -1 do
+      self.data[i] = self.data[i-1]
+   end
+   self.length = self.length + 1
+   self.data[0] = val
 end
 Array.grep = function(self, func)
-   local out = { }
-   for v in self:__values() do
-      if func(nil, v) == true then
-         out[#out + 1] = v
+   local out = kudu.array{ }
+   for i, v in self:__each() do
+      if func(v) == true then
+         out:push(v)
       end
    end
-   return kudu.array(out)
+   return out
 end
 Array.map = function(self, func)
-   local out = { }
-   for v in self:__values() do
-      local r = func(nil, v)
-      out[#out + 1] = r == nil and null or r
+   local out = kudu.array{ }
+   for i, v in self:__each() do
+      out:push(func(v))
    end
-   return kudu.array(out)
+   return out
+end
+Array.each = function(self, func)
+   for i, v in self:__each() do
+      func(i, v)
+   end
 end
 
-
 kudu.array = function(data)
-   local self  = { data = data or { } }
-   self.data[0] = table.remove(self.data, 1)
+   local self = { data = data or { } }
    self.length = #self.data
+   self.data[0] = table.remove(self.data, 1)
    return setmetatable(self, Array)
 end
 
 Range = { }
 Range.__index = Range
-Range.__pairs = function(self)
-   return self:__values()
-end
-Range.__keys = function(self)
-   return self:__values()
-end
-Range.__values = function(self)
+Range.__each = function(self)
    local cur = self[1] - 1
    local max = self[2]
-   return function(t)
+   return function()
       cur = cur + 1
       if cur <= max then
          return cur
       end
-   end, self
+   end
 end
 
 kudu.range = function(min, max)
@@ -661,15 +596,15 @@ _M.global["__invoke_late__"] = function(base, meth, this, ...)
    this = this == nil and base or this
    return func(this, ...)
 end
+_M.global.assert = _G.assert
 _M.global.magic = _G
-_M.global.print = function(_, ...)
-   return print(...)
-end
-_M.global.RegExp = RegExp
-_M.global.require = function(...) return _G.require(...) end
+_M.global.print = _G.print
+_M.global.require = _G.require
+_M.global.select  = _G.select
 _M.global.kudu = kudu
 
 function kudu.load()
    setfenv(2, kudu.package.current.environ)
 end
 
+_M.global.RegExp = require'std.regexp'.RegExp

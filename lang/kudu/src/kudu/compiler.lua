@@ -113,16 +113,21 @@ function def:ident(node)
    return node[1]
 end
 function def:string(node)
-   return string.format('%q', node[1])
+   local str = node[1]
+   if str:sub(1,1) == "'" then
+      return string.format('(%q)', str:sub(2,-2))
+   else
+      return string.format('(%s)', str)
+   end
 end
 function def:number(node)
-   return tostring(node[1])
+   return '('..tostring(node[1])..')'
 end
 def['true'] = function(self, node)
-   return 'true'
+   return '(true)'
 end
 def['false'] = function(self, node)
-   return 'false'
+   return '(false)'
 end
 def['null'] = function(self, node)
    return '__null__'
@@ -155,15 +160,14 @@ function def:for_in_stmt(node)
       vars[#vars + 1] = self:process(node[1][i])
    end
    local expr = self:process(node[2])
-   local iter
-   if #vars == 1 then
-      iter = expr[1]..':__values()'
-   else
-      iter = expr[1]..':__pairs()'
-   end
-   self:emit("for "..table.concat(vars, ', ')..' in '..iter..' do local __break__ repeat')
+   local iter = expr[1]..':__each()'
+   local temp = self:genid()
+   self:emit("do local "..temp.." = "..expr[1]..
+      " if magic.type("..temp..") ~= 'function' then "..temp..' = '..iter..' end'
+   )
+   self:emit("for "..table.concat(vars, ', ')..' in '..temp..' do local __break__ repeat')
    self:process(node[3])
-   self:emit"until true if __break__ then break end end"
+   self:emit"until true if __break__ then break end end end"
 end
 function def:cond_block(node)
    local body = { }
@@ -234,9 +238,17 @@ function def:op_infix(node)
          b = self:process(node[2])
       end
       if node.is_lhs then
-         return { a..':__set_member('..string.format('%q', b)..', %s)' }
+         if a == 'this' then
+            return { a..':__set_member(__slot_'..b..', %s)' }
+         else
+            return { a..':__set_member('..string.format('%q', b)..', %s)' }
+         end
       end
-      return a..":__get_member("..string.format('%q', b)..")"
+      if a == 'this' then
+         return a..':__get_member(__slot_'..b..')'
+      else
+         return a..":__get_member("..string.format('%q', b)..")"
+      end
    end
    if o == "::" then
       return a..'.'..self:process(node[2])
@@ -314,7 +326,7 @@ function def:op_circumfix(node)
    for i=1, #node do
       nops[#nops + 1] = self:process(node[1])
    end
-   return table.concat(nops, ' ')
+   return '('..table.concat(nops, ' ')..')'
 end
 function def:op_postcircumfix(node)
    local oper = node.oper
@@ -331,6 +343,9 @@ function def:op_postcircumfix(node)
          if this == "super" then
             local args = { 'this', unpack(expr) }
             return this..'.'..meth..'('..table.concat(args, ', ')..')'
+         elseif this == 'this' then
+            local args = { 'this', unpack(expr) }
+            return meth..'('..table.concat(args, ', ')..')'
          end
          return this..':'..meth..'('..table.concat(expr, ', ')..')'
 
@@ -371,7 +386,7 @@ function def:op_postcircumfix(node)
          end
 
          local base = self:process(node[1])
-         local args = { 'this', unpack(expr) }
+         local args = { unpack(expr) }
          return base..'('..table.concat(args, ', ')..')'
       end
 
@@ -418,7 +433,7 @@ function def:bind_stmt(node)
          lhs_oper == '.' or lhs_oper == '[' or
          lhs_oper == '.[' or lhs_oper == '::' or
          lhs_oper == '::[' or lhs_expr[1].tag == "ident"
-      ) then
+      ) or lhs_expr[1].tag == 'ident' and lhs_expr[1][1] == 'this' then
          self:error('invalid left hand side in assignment')
       end
       lhs_expr[1].is_lhs = true
@@ -456,7 +471,7 @@ function def:func_decl(node)
    self:emit"end"
 end
 function def:func_params(node)
-   local list = { '__self__' }
+   local list = { 'this' }
    for i=1,#node do
       if node[i].tag == "rest" then
          list[#list + 1] = "..."
@@ -471,7 +486,8 @@ end
 function def:short_lambda(node)
    node[1].tag = 'func_params'
    local parm_list = self:process(node[1])
-   local body = { def.func_init(self) }
+   assert(table.remove(parm_list, 1) == 'this')
+   local body = { }
    local code = self.code
    self.code = body
    body[#body + 1] = 'return'
@@ -484,7 +500,10 @@ function def:short_lambda(node)
 end
 function def:func_literal(node)
    local parm_list = self:process(node[1])
-   local body = { def.func_init(self) }
+   if node.tag ~= 'func_decl' then
+      assert(table.remove(parm_list, 1) == 'this')
+   end
+   local body = { }
    local code = self.code
    self.code = body
    for i=1, #node[2] do
@@ -534,6 +553,11 @@ function def:class_decl(node)
    local name = iden[1]
    local head = node[2]
    local body = node[3]
+   local code = self.code
+
+   local class_frame = { }
+   self.code = class_frame
+   self:emit"do"
 
    self:emit(name..' = '..string.format('__class_create__(%q)', name))
 
@@ -542,7 +566,7 @@ function def:class_decl(node)
 
    if from ~= nil and from[1] ~= "" then
       local base = from[1][1]
-      self:emit("__class_extend__("..name..", "..base..")")
+      self:emit("local super = __class_extend__("..name..", "..base..")")
    end
 
    if with ~= nil then
@@ -552,12 +576,26 @@ function def:class_decl(node)
       end
    end
 
+   local hoist = { }
+   self:emit"local %s"
+   local hoist_idx = #self.code
+
    for i=1, #body do
-      local member = body[i]
+      local body_stmt = body[i]
+      local member = body_stmt[1]
       if member.tag == "func_decl" then
-         local ident = table.remove(member, 1)
-         local args  = { name, string.format('%q', ident[1]), def.func_literal(self, member) }
-         self:emit('__class_add_meth__('..table.concat(args, ', ')..')')
+         self:process(member)
+         local ident = member[1]
+         hoist[ident[1]] = 'nil'
+         if body_stmt.modifier ~= 'private' then
+            local args  = {
+               name,
+               string.format('%q', ident[1]),
+               ident[1],
+               string.format('%q', body_stmt.modifier or '')
+            }
+            self:emit('__class_add_meth__('..table.concat(args, ', ')..')')
+         end
       elseif member.tag == "var_decl" then
          local name_list = member[1]
          local expr_list = member[2]
@@ -567,11 +605,40 @@ function def:class_decl(node)
             if expr_list and expr_list[i] then
                default = self:process(expr_list[i])
             end
-            local args = { name, string.format('%q', ident[1]), default }
+            if body_stmt.modifier == 'private' then
+               hoist['__slot_'..ident[1]] = '{}'
+            else
+               hoist['__slot_'..ident[1]] = string.format('%q', ident[1])
+            end
+            local args = {
+               name,
+               '__slot_'..ident[1],
+               default,
+               string.format('%q', body_stmt.modifier or ''),
+            }
             self:emit('__class_add_attr__('..table.concat(args, ', ')..')')
          end
       end
    end
+   self:emit"end"
+
+   local hoist_keys = { }
+   local hoist_vals = { }
+   for k,v in pairs(hoist) do
+      hoist_keys[#hoist_keys + 1] = k
+      hoist_vals[#hoist_vals + 1] = v
+   end
+
+   if #hoist_keys > 0 then
+      local hoist_expr = self.code[hoist_idx]
+      self.code[hoist_idx] = hoist_expr:format(
+         table.concat(hoist_keys, ', ')..'='..table.concat(hoist_vals, ', ')
+      )
+   else
+      self.code[hoist_idx] = ''
+   end
+   self.code = code
+   self:emit(table.concat(class_frame, ' '))
 end
 function def:role_decl(node)
    local iden = node[1]

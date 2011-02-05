@@ -49,8 +49,8 @@ p:rule"keyword" {
    (
       m.P"var" + "function" + "class" + "is" + "with" + "new" + "object"
       + "null" + "true" + "false" + "typeof" + "return" + "in" + "for" + "throw"
-      + "type" + "enum" + "like" + "delete" + "private" + "public" + "extends"
-      + "break" + "continue" + "module" + "import" + "export" + "try" + "catch"
+      + "enum" + "like" + "delete" + "private" + "public" + "extends" + "static"
+      + "break" + "continue" + "package" + "import" + "export" + "try" + "catch"
       + "finally"
    ) * -(m.V"alnum"+m.P"_")
 }
@@ -69,8 +69,8 @@ p:match"number" {
    m.V"hexadec" + m.V"decimal"
 }
 p:match"string" {
-     m.P'"' * m.C((m.P'\\\\' + m.P'\\"' + (1 -m.P'"'))^0) * m.P'"'
-   + m.P"'" * m.C((m.P"\\\\" + m.P"\\'" + (1 -m.P"'"))^0) * m.P"'"
+     m.C(m.P'"' * (m.P'\\\\' + m.P'\\"' + (1 -m.P'"'))^0 * m.P'"')
+   + m.C(m.P"'" * (m.P"\\\\" + m.P"\\'" + (1 -m.P"'"))^0 * m.P"'")
 }
 p:rule"term" {
      m.V"ident"
@@ -168,7 +168,7 @@ p:match"array_literal" {
    m.P"[" * s * m.V"items"^-1 * s * p:expect"]"
 }
 p:rule"items" {
-   m.V"expr" * (s * "," * s * m.V"expr")^0
+   m.V"expr" * (s * "," * s * m.V"expr")^0 * (s * ",")^-1
 }
 p:match"table_literal" {
    m.P"{" * s * m.V"pairs"^-1 * s * p:expect"}"
@@ -199,9 +199,7 @@ p:rule"func_common" {
    * p:expect"{" * s * m.V"block" * s * p:expect"}"
 }
 p:match"func_params" {
-   ((m.V"ident" * (s * "," * s * m.V"ident")^0)^-1
-   * (s * "," * s * m.V"rest")^-1)
-   + m.V"rest"
+   ((m.V"ident" * (s * "," * s * m.V"ident")^0)^-1 * (s * "," * s * m.V"rest")^-1) * (s * m.V"rest" * s)^-1
    + m.P(true)
 }
 p:match"return_stmt" {
@@ -218,9 +216,9 @@ p:match"class_head" {
 p:match"class_body" {
    (m.V"class_body_stmt" * (stmt_sep * m.V"class_body_stmt")^0)^-1
 }
-p:rule"class_body_stmt" {
-     m.Cg(m.P"public" + m.P"private", "attribute")^-1
-   * (m.V"var_decl"  * stmt_sep + m.V"func_decl" * stmt_sep)
+p:match"class_body_stmt" {
+     m.Cg((m.P"public" + m.P"private" + m.P"static"), "modifier")^-1
+   * s * (m.V"var_decl"  * stmt_sep + m.V"func_decl" * stmt_sep)
 }
 p:match"class_from" {
    m.P"extends" * s * m.V"ident"
