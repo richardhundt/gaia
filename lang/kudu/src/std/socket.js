@@ -1,27 +1,22 @@
 package std.socket
 
-var OPTS_LIST = [
-   "reuseaddr",
-   "type",
-   "error",
-   "dontroute",
-   "sndbuf",
-   "rcvbuf",
-   "sndlowat",
-   "rcvlowat",
-   "broadcast",
-   "keepalive",
-   "oobinline",
-   "linger",
-   "tcp_nodelay",
-   "multicast_ttl",
-   "multicast_if",
-   "multicast_loop",
-]
-
-var OPTS_HASH = { }
-for (k,v in OPTS_LIST) {
-    OPTS_HASH[k] = v
+enum SockOpts {
+   reuseaddr;
+   type;
+   error;
+   dontroute;
+   sndbuf;
+   rcvbuf;
+   sndlowat;
+   rcvlowat;
+   broadcast;
+   keepalive;
+   oobinline;
+   linger;
+   tcp_nodelay;
+   multicast_ttl;
+   multicast_if;
+   multicast_loop;
 }
 
 function getaddrinfo(host, addr) {
@@ -50,12 +45,12 @@ function pack_sockaddr_un(path) {
 
 class Socket {
 
-    var type   = 'stream'
-    var domain = 'inet'
-    var handle
-    var buffer
+    public var type   = 'stream'
+    public var domain = 'inet'
+    public var handle
+    public var buffer
 
-    var _nonblocking = false
+    public var _nonblocking = false
 
     function this(type, domain) {
         if (type)   this.type   = type
@@ -133,15 +128,12 @@ class Socket {
 
     function readline(irs) {
        irs = irs || "\n"
-       print("readline", irs)
        var rfh = this.handle
        var buf = this.buffer
        var got, ofs, idx = 0, 0
        while (true) {
           got = rfh.read(buf, 4096)
-          print("got:", got)
           idx = buf.index(irs, ofs)
-          print("idx:", idx)
           if (got) ofs += got
           if (!got) break
           if (idx) {
@@ -170,7 +162,7 @@ class Socket {
 }
 
 var sock = new Socket()
-assert(sock.bind('127.0.0.1', 8088))
+assert(sock.bind('127.0.0.1', 8089))
 assert(sock.listen(16))
 while (true) {
     var client = sock.accept()

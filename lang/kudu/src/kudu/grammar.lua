@@ -25,6 +25,7 @@ p:match"block" {
 p:rule"statement" {
      m.V"func_decl"     * stmt_sep
    + m.V"var_decl"      * stmt_sep
+   + m.V"enum_stmt"     * stmt_sep
    + m.V"if_stmt"       * stmt_sep
    + m.V"for_stmt"      * stmt_sep
    + m.V"for_in_stmt"   * stmt_sep
@@ -48,10 +49,10 @@ p:token"word_char" {
 p:rule"keyword" {
    (
       m.P"var" + "function" + "class" + "is" + "with" + "new" + "object"
-      + "null" + "true" + "false" + "typeof" + "return" + "in" + "for" + "throw"
-      + "enum" + "like" + "delete" + "private" + "public" + "extends" + "static"
+      + "nil" + "true" + "false" + "typeof" + "return" + "in" + "for" + "throw"
+      + "enum" + "like" + "delete" + "private" + "public" + "protected" + "extends"
       + "break" + "continue" + "package" + "import" + "export" + "try" + "catch"
-      + "finally"
+      + "finally" + "static"
    ) * -(m.V"alnum"+m.P"_")
 }
 p:match"ident" {
@@ -77,7 +78,7 @@ p:rule"term" {
    + m.V"range"
    + m.V"number"
    + m.V"string"
-   + m.V"null"
+   + m.V"nil"
    + m.V"rest"
    + m.V"true"
    + m.V"false"
@@ -86,10 +87,10 @@ p:rule"term" {
    + m.V"table_literal"
    + m.V"func_literal"
 }
-p:match"null"  { m.P"null"  }
+p:match"nil"   { m.P"nil"   }
 p:match"true"  { m.P"true"  }
 p:match"false" { m.P"false" }
-p:match"rest"  { m.P"..." }
+p:match"rest"  { m.P"..."   }
 
 p:match"var_decl" {
    m.Cg(m.C"var" + m.C"let", "alloc") * s
@@ -109,6 +110,11 @@ p:rule"expr_stmt" {
       end
       return node
    end
+}
+p:match"enum_stmt" {
+   m.P"enum" * s * m.V"ident" * s * p:expect"{" *
+   (s * m.V"ident" * s * ";")^1 * s *
+   p:expect"}"
 }
 p:match"for_stmt" {
    m.P"for" * s
@@ -187,7 +193,9 @@ p:match"range" {
    m.V"number" * s * ".." * s * m.V"number"
 }
 p:match"func_decl" {
-   m.P"function" * s * m.V"ident" * s * m.V"func_common"
+   m.P"function" * s * (
+      m.Cg(m.C"op" + m.C"get" + m.C"set" + m.P(true), "attribute")
+   ) * s * m.V"ident" * s * m.V"func_common"
 }
 p:match"func_literal" {
    m.P"function" * s * m.V"func_common"
@@ -217,7 +225,7 @@ p:match"class_body" {
    (m.V"class_body_stmt" * (stmt_sep * m.V"class_body_stmt")^0)^-1
 }
 p:match"class_body_stmt" {
-     m.Cg((m.P"public" + m.P"private" + m.P"static"), "modifier")^-1
+     m.Cg((m.P"public" + m.P"private" + m.P"static" + m.P"protected"), "modifier")^-1
    * s * (m.V"var_decl"  * stmt_sep + m.V"func_decl" * stmt_sep)
 }
 p:match"class_from" {
@@ -265,7 +273,7 @@ local expr_base = p:express"expr_base" :primary"term"
 
 expr_base:op_infix("||", "&&"   ):prec(3)
 expr_base:op_infix("|", "^", "&"):prec(6)
-expr_base:op_infix("!=", "=="   ):prec(7)
+expr_base:op_infix("!=", "==", "instanceof" ):prec(7)
 expr_base:op_infix(
    ">>>", ">>", "<<"
    ):prec(9)

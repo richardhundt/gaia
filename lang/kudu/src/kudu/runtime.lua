@@ -14,111 +14,27 @@ local pairs, ipairs, rawequal, next = pairs, ipairs, rawequal, next
 local _M = _M
 _M.global = { }
 
-kudu.null = newproxy(true)
-
-local null = kudu.null
-local null_arith = function()
-   error("attempt to perform arithmetic on a null value")
-end
-local null_meta = getmetatable(null)
-null_meta.__add = null_arith;
-null_meta.__sub = null_arith;
-null_meta.__mul = null_arith;
-null_meta.__pow = null_arith;
-null_meta.__div = null_arith;
-null_meta.__mod = null_arith;
-null_meta.__tostring = function() return "null" end;
-
-Type = { }
-Type.__index = Type
-Type.__tostring = function(self) return self.name end
-function Type.new(name, check)
-   local self = { name = name, check = check }
-   return setmetatable(self, Type)
-end
-function Type:assertTypeOf(value, level)
-   if self.check(value) then
-      return value
-   else
-      error("TypeError: "..tostring(value).." is not a "..self.name, (level or 1) + 2)
-   end
-end
-function Type:isTypeOf(value)
-   return self.check(value)
-end
-
-Any     = Type.new("Any", function(v) return v ~= null end)
-Null    = Type.new("Null", function(v) return v == null end)
-Number  = Type.new("Number", function(v) return type(v) == "number" end)
-String  = Type.new("String", function(v) return type(v) == "string" end)
-Boolean = Type.new("Boolean", function(v) return type(v) == "boolean" end)
-
 do
    local string_meta = getmetatable("")
-   string_meta.__index.__get_member = function(self, name)
-      if name == 'length' then return #self end
-      return string_meta.__index[name]
+   local string_table = string_meta.__index
+   string_meta.__index = function(self, key)
+      if key == 'length' then return #self end
+      return string_table[key]
    end
 end
 
 MetaClass = {
-   __tostring = function(self) return self.name end;
+   __tostring = function(self) return self.__name__ end;
    __newindex = function()
       error("attempt to decorate a class", 2)
    end
 }
 
-Class = { }
-Class.isTypeOf = function(class, value)
-   local meta = getmetatable(value)
-   while meta do
-      if meta == class then
-         return true
-      end
-      meta = meta.parent
-   end
-end
-Class.assertTypeOf = function(class, value)
-   if class:isTypeOf(value) then
-      return value
-   else
-      local ty = value == null and "null" or type(value)
-      error("TypeError: expected "..class.name.." but got "..ty, (level or 1) + 2)
-   end
-end
+Class = { __name__ = 'Class' }
 setmetatable(Class, MetaClass)
 
-Role = { }
-Role.isTypeOf = function(role, value)
-   local meta = getmetatable(value)
-   while meta do
-      if meta.roles[role] then
-         return true
-      end
-      meta = meta.parent
-   end
-end
-Role.assertTypeOf = function(class, value)
-   if class:isTypeOf(value) then
-      return value
-   else
-      local ty = value == null and "null" or type(value)
-      error("TypeError: expected "..class.name.." but got "..ty, 3)
-   end
-end
+Role = { __name__ = 'Role' }
 setmetatable(Role, MetaClass)
-
-Method = { }
-Method.new = function(spec)
-   spec.call = function(call, ...) return call(...) end;
-   return setmetatable(spec, {
-      __metatable = Method;
-      __call      = function(func, ...) return spec.body(...) end;
-      name        = spec.name;
-      info        = spec.info;
-      body        = spec.body;
-   })
-end
 
 Module = { }
 Module.__index = { }
@@ -176,12 +92,20 @@ kudu.class.create = function(name)
    local meths = { }
    local roles = { }
    local cdata = setmetatable({ }, { __index = Class })
-   local class = { }
+   local class = { __name__ = name or '<anon>' }
+
+   local private   = { attribs = { }, methods = { }, getters = { }, setters = { } }
+   local protected = { attribs = { }, methods = { }, getters = { }, setters = { } }
+   local public    = { attribs = { }, methods = { }, getters = { }, setters = { } }
+
    local meta  = {
       name    = name;
-      attribs = attrs;
-      methods = meths;
       static  = cdata;
+
+      public    = public;
+      private   = private;
+      protected = protected;
+
       parent  = { };
       __metatable = Class;
       __index     = cdata;
@@ -195,78 +119,139 @@ kudu.class.create = function(name)
       end;
    }
    setmetatable(class, meta)
+
    local rawget, rawset = rawget, rawset
+
+   local attrs = private.attribs
+   local meths = private.methods
+   local getts = private.getters
+   local setts = private.setters
+
    local function __index(obj, key)
-      if obj[key] ~= nil then return obj[key] end
       local attr = attrs[key]
       if attr then
-         local val
-         if attr.default ~= nil then
+         local val = rawget(obj, attr)
+         if val == nil and attr.default ~= nil then
             val = attr.default
             if type(val) == "table" then
                local tmp = val
                val = table.clone(tmp)
                setmetatable(val, getmetatable(tmp))
             end
-         else
-            val = null
+            rawset(obj, attr, val)
          end
-         obj[key] = val
          return val
       end
       local meth = meths[key]
       if meth then
-         rawset(obj, key, val)
+         rawset(obj, key, meth)
          return meth
       end
       if key == '__meta__' then
          return meta
       end
+      local get = getts[key]
+      if get then return get(obj) end
+
       error("AccessError: attempt to get '"..tostring(key).."' in "..name, 2)
    end
    local function __newindex(obj, key, val)
       local attr = attrs[key]
       if attr ~= nil then
-         return rawset(obj, key, val)
+         return rawset(obj, attr, val)
       end
-      if meths[key] ~= nil then
+      local meth = meths[key]
+      if meth then
          if type(val) == "function" then
             return rawset(obj, key, val)
          end
       end
+      local set = setts[key]
+      if set then return set(obj, val) end
       error("AccessError: attempt to set '"..tostring(key).."' in "..name, 2)
    end
 
-   class.__index = meths
-   class.__get_member = function(class, key)
-      return cdata[key]
-   end
-   class.__set_member = function(class, key, val)
-      cdata[key] = val
-   end
-   meths.__get_member = __index;
-   meths.__set_member = __newindex;
-   meths.__to_string = function(obj) return "["..name..": "..sys.refaddr(obj).."]" end
-   class.__tostring = function(obj) return obj:__to_string() end
+   class.__index = __index
+   class.__newindex = __newindex;
+   class.__tostring = function(obj) return "["..name..": "..sys.refaddr(obj).."]" end
 
    kudu.package.current:define(name, class)
 
    return class
 end
-kudu.class.add_method = function(class, name, body, modifier)
+
+kudu.instanceof = function(this, that)
+   local base = getmetatable(this)
+   local meta
+   while base do
+      if base == that then return true end
+      meta = debug.getmetatable(base)
+      if meta then
+         base = rawget(meta, 'parent')
+      else
+         break
+      end
+   end
+   return false
+end
+
+local visibility = {
+   private   = 1,
+   protected = 2,
+   public    = 3,
+   ['']      = 3,
+}
+
+kudu.class.add_method = function(class, name, body, modifier, attribute)
    local meta = debug.getmetatable(class)
    if modifier == 'static' then
       meta.static[name] = body
    else
-      meta.methods[name] = body
+      local short_name = name
+      if attribute ~= nil and attribute ~= '' then
+         name = '__'..attribute..'_'..name
+      end
+      meta.private.methods['!'..name] = body
+      if attribute == 'set' then
+         meta.private.setters[short_name] = body
+      elseif attribute == 'get' then
+         meta.private.getters[short_name] = body
+      end
+      if visibility[modifier] > visibility['private'] then
+         meta.protected.methods['!'..name] = body
+         if attribute == 'set' then
+            meta.protected.setters[short_name] = body
+         elseif attribute == 'get' then
+            meta.protected.getters[short_name] = body
+         end
+      end
+      if visibility[modifier] > visibility['protected'] then
+         meta.public.methods['!'..name] = body
+         meta.public.methods[name] = body
+         meta.private.methods[name] = body
+         meta.protected.methods[name] = body
+         if attribute == 'set' then
+            meta.public.setters[short_name] = body
+         elseif attribute == 'get' then
+            meta.public.getters[short_name] = body
+         end
+      end
    end
 end
 kudu.class.add_attrib = function(class, name, default, modifier)
    local meta = debug.getmetatable(class)
    if modifier == 'static' then
-      meta.static[name] = default == nil and null or default
+      meta.static[name] = default
    else
-      meta.attribs[name] = { default = default == nil and null or default }
+      local attr = { name = name, default = default, modifier = modifier }
+      meta.private.attribs['!'..name] = attr
+      if visibility[modifier] > visibility['private'] then
+         meta.protected.attribs['!'..name] = attr
+      end
+      if visibility[modifier] > visibility['protected'] then
+         meta.public.attribs['!'..name] = attr
+         meta.public.attribs[name] = attr
+      end
    end
 end
 kudu.class.add_classdata = function(class, name, info)
@@ -274,21 +259,23 @@ kudu.class.add_classdata = function(class, name, info)
    meta.static[name] = info
 end
 kudu.class.extend = function(class, base)
-   local base_meta = debug.getmetatable(base)
    local meta  = debug.getmetatable(class)
    meta.parent = base
-   setmetatable(meta.attribs, { __index = base_meta.attribs })
-   setmetatable(meta.methods, { __index = base_meta.methods })
-   setmetatable(meta.static,  { __index = base_meta.static  })
-   return base_meta.methods
+   local base_meta = debug.getmetatable(base)
+
+   setmetatable(meta.private.attribs, { __index = base_meta.protected.attribs })
+   setmetatable(meta.private.methods, { __index = base_meta.protected.methods })
+   setmetatable(meta.static, { __index = base_meta.static })
+
+   return base_meta.protected.methods
 end
 kudu.class.mixin = function(class, role)
    local meta = debug.getmetatable(role)
    for name,info in pairs(meta.attribs) do
-      kudu.class.add_attrib(class, name, info)
+      kudu.class.add_attrib(class, name, info.default, info.modifier)
    end
    for name,func in pairs(meta.methods) do
-      kudu.class.add_method(class, name, func)
+      kudu.class.add_method(class, name, func, meta.method_modifiers[func])
    end
 end
 
@@ -300,7 +287,7 @@ kudu.alloc = function(class, ...)
    if meta.alloc then return meta.alloc() end
    local self = { }
    setmetatable(self, class)
-   local constructor = meta.methods.this
+   local constructor = meta.private.methods.this
    if constructor then constructor(self, ...) end
    return self
 end
@@ -311,33 +298,58 @@ kudu.role.create = function(name)
    local meths = { }
    local roles = { }
    local cdata = setmetatable({ }, { __index = Role })
-   local role  = { }
+   local role  = { __name__ = name or '<anon>' }
    local meta  = {
       name    = name;
       attribs = attrs;
       methods = meths;
       static  = cdata;
+      method_modifiers = { };
       parent  = { };
       __metatable = Role;
-      __index     = cdata;
+      __index     = function(o,k)
+         local attr = attrs[k]
+         if attr then return attr.default end
+         local meth = meths[k]
+         if meth then return meth end
+         local data = cdata[k]
+         if data ~= nil then return data end
+         error("AccessError: attempt to get '"..k.."' in "..name, 2)
+      end;
+      __newindex = function(o, k, v)
+         local attr = attrs[k]
+         if attr then return rawset(o, attr, v) end
+         error("AccessError: attempt to set '"..k.."' in "..name, 2)
+      end;
       __tostring  = function(role) return name end;
    }
    setmetatable(role, meta)
    kudu.package.current:define(name, role)
    return role
 end
-kudu.role.add_method = function(role, name, body, info)
+kudu.role.add_method = function(role, name, body, modifier)
    local meta = debug.getmetatable(role)
-   local fenv = setmetatable({ }, { __index = getfenv(body) })
-   fenv.super = setmetatable({ }, {
-      __index = function(role, key) return debug.getmetatable(meta.parent)[key] end
-   })
-   setfenv(body, fenv)
-   meta.methods[name] = body
+   if modifier == 'static' then
+      meta.static[name] = body
+   else
+      local meth = body
+      meta.methods['!'..name] = meth
+      if modifier ~= 'private' then
+         meta.methods[name] = meth
+      end
+   end
 end
-kudu.role.add_attrib = function(role, name, info)
+kudu.role.add_attrib = function(role, name, default, modifier)
    local meta = debug.getmetatable(role)
-   meta.attribs[name] = info
+   if modifier == 'static' then
+      meta.static[name] = default
+   else
+      local attr = { name = name, default = default, modifier = modifier }
+      meta.attribs['!'..name] = attr
+      if modifier ~= 'private' then
+         meta.attribs[name] = attr
+      end
+   end
 end
 kudu.role.add_classdata = function(role, name, info)
    local meta = debug.getmetatable(role)
@@ -346,41 +358,25 @@ end
 kudu.role.mixin = function(role, with)
    local meta = debug.getmetatable(with)
    for name,info in pairs(meta.attribs) do
-      kudu.role.add_attrib(role, name, info)
+      kudu.role.add_attrib(role, name, info.default, info.modifier)
    end
    for name,func in pairs(meta.methods) do
-      local func_meta = debug.getmetatable(func)
-      kudu.role.add_method(role, name, func_meta.body, func_meta.info)
+      kudu.role.add_method(role, name, func, meta.method_modifiers[func])
    end
-end
-
-kudu.type_assert = function(value, vtype, nullable)
-   if value == nil then value = null end
-   if nullable and value == null then return value end
-   if not vtype:isTypeOf(value) then
-      local got_type
-      if value == null then
-         got_type = "null value"
-      else
-         got_type = type(value)
-      end
-      error("TypeError: expected "..tostring(vtype).." but got a "..got_type, 2)
-   end
-   return value
 end
 
 Table = { }
-Table.__index = Table
+Table.__index = function(self, key)
+   if key == 'length' then return #self end
+   return Table[key]
+end
 Table.__tostring = function(self) return '[Table: '..sys.refaddr(self)..']' end
 Table.__each = function(self)
-   return pairs(self)
-end
-Table.__get_member = function(self, key)
-   if key == 'length' then return #self end
-   return self[key]
-end
-Table.__set_member = function(self, key, val)
-   self[key] = val
+   local k
+   return function()
+      k = next(self, k)
+      return k, self[k]
+   end
 end
 Table.__get_index = function(self, key)
    return self[key]
@@ -411,16 +407,6 @@ end
 Array.__set_index = function(self, key, val)
    if key >= self.length then self.length = key + 1 end
    self.data[key] = val
-end
-Array.__get_member = function(self, key)
-   if key == "length" then
-      return self.length
-   else
-      return Array[key]
-   end
-end
-Array.__set_member = function(self, key, val)
-   self[key] = val
 end
 Array.__each = function(self)
    local i = 0
@@ -489,6 +475,16 @@ kudu.array = function(data)
    self.length = #self.data
    self.data[0] = table.remove(self.data, 1)
    return setmetatable(self, Array)
+end
+
+Enum = { }
+Enum.__index = Enum
+kudu.enum = function(table)
+   local enum = { }
+   for i,v in ipairs(table) do
+      enum[v] = i
+   end
+   return setmetatable(enum, Enum)
 end
 
 Range = { }
@@ -568,12 +564,10 @@ _M.global["__bxor__"] = bit.bxor
 _M.global["__lshift__"] = bit.lshift
 _M.global["__rshift__"] = bit.rshift
 _M.global["__arshift)"] = bit.arshift
-_M.global["__null__"] = kudu.null
 _M.global["__alloc__"] = kudu.alloc
 _M.global["__table__"] = kudu.table
 _M.global["__array__"] = kudu.array
 _M.global["__range__"] = kudu.range
-_M.global["__type_assert__"] = kudu.type_assert
 _M.global["__class_create__"] = kudu.class.create
 _M.global["__class_extend__"] = kudu.class.extend
 _M.global["__class_add_meth__"] = kudu.class.add_method
@@ -591,6 +585,8 @@ _M.global["__package_create__"] = kudu.package.create
 _M.global["__package_export__"] = kudu.package.export
 _M.global["__package_import__"] = kudu.package.import
 _M.global["__init__"] = kudu.init
+_M.global["__typeof__"] = getmetatable
+_M.global["__instanceof__"] = kudu.instanceof
 _M.global["__invoke_late__"] = function(base, meth, this, ...)
    local func = base[meth]
    this = this == nil and base or this

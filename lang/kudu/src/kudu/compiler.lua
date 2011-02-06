@@ -59,7 +59,7 @@ Context.compile = function(self, source, fname, opts)
       end
    end
    self.line = 1
-   self:emit[[require"kudu.runtime"; kudu.load(); local this = kudu.null]]
+   self:emit[[require"kudu.runtime"; kudu.load(); local this = nil]]
    self:process(self.input);
    self:emit"return __package__"
 
@@ -123,14 +123,14 @@ end
 function def:number(node)
    return '('..tostring(node[1])..')'
 end
+def['nil'] = function(self, node)
+   return '(nil)'
+end
 def['true'] = function(self, node)
    return '(true)'
 end
 def['false'] = function(self, node)
    return '(false)'
-end
-def['null'] = function(self, node)
-   return '__null__'
 end
 function def:rest(node)
    return '...'
@@ -138,6 +138,14 @@ end
 function def:range(node)
    local min, max = self:process(node[1]), self:process(node[2])
    return '__range__('..min..','..max..')'
+end
+function def:enum_stmt(node)
+   local terms = { }
+   local ident = node[1][1]
+   for i=2, #node do
+      terms[#terms + 1] = string.format('%q', self:process(node[i]))
+   end
+   self:emit(ident..' = kudu.enum{'..table.concat(terms, ',')..'}')
 end
 function def:for_stmt(node)
    local iden = self:process(node[1])
@@ -225,30 +233,36 @@ function def:op_infix(node)
    local a, b
    a = self:process(node[1])
    if o == "." then
-      if node[2].tag == "op_postcircumfix" and node[2].oper == '(' then
-         local ident = self:process(node[2][1])
-         local parms = node[2][2]
-         if parms == "" then
-            parms = { }
-         else
-            parms = self:process(parms)
+      if node[2].tag == "op_postcircumfix" then
+         if node[2].oper == '(' then
+            local ident = self:process(node[2][1])
+            local parms = node[2][2]
+            if parms == "" then
+               parms = { }
+            else
+               parms = self:process(parms)
+            end
+            return a..':'..ident..'('..table.concat(parms, ', ')..')'
+         elseif node[2].oper == '::[' then
+            local ident = self:process(node[2][1])
+            local expr  = self:process(node[2][2])
+            if a == 'this' then
+               return 'this['..string.format('%q', '!'..ident)..']['..expr..']'
+            end
+            return a..'.'..ident..'['..expr..']'
          end
-         return a..':'..ident..'('..table.concat(parms, ', ')..')'
       else
          b = self:process(node[2])
       end
-      if node.is_lhs then
-         if a == 'this' then
-            return { a..':__set_member(__slot_'..b..', %s)' }
-         else
-            return { a..':__set_member('..string.format('%q', b)..', %s)' }
-         end
-      end
       if a == 'this' then
-         return a..':__get_member(__slot_'..b..')'
+         b = string.format('%q', '!'..b)
       else
-         return a..":__get_member("..string.format('%q', b)..")"
+         b = string.format('%q', b)
       end
+      if node.is_lhs then
+         return { a..'['..b..'] = %s' }
+      end
+      return a..'['..b..']'
    end
    if o == "::" then
       return a..'.'..self:process(node[2])
@@ -283,6 +297,8 @@ function def:op_infix(node)
       return "__arshift__("..a..", "..b..")"
    elseif o == "<<" then
       return "__lshift__("..a..", "..b..")"
+   elseif o == 'instanceof' then
+      return '__instanceof__('..a..', '..b..')'
    else
       error("invalid infix operator: "..o)
    end
@@ -304,6 +320,8 @@ function def:op_prefix(node)
       return a..' = '..a..' - 1'
    elseif o == "new" then
       return { '__alloc__(%s)', a }
+   elseif o == 'typeof' then
+      return '__typeof__('..a..')'
    end
 end
 function def:op_postfix(node)
@@ -345,7 +363,8 @@ function def:op_postcircumfix(node)
             return this..'.'..meth..'('..table.concat(args, ', ')..')'
          elseif this == 'this' then
             local args = { 'this', unpack(expr) }
-            return meth..'('..table.concat(args, ', ')..')'
+            meth = string.format('%q', '!'..meth)
+            return 'this['..meth..']('..table.concat(args, ', ')..')'
          end
          return this..':'..meth..'('..table.concat(expr, ', ')..')'
 
@@ -397,6 +416,14 @@ function def:op_postcircumfix(node)
       else
          return base..':__get_index('..expr..')'
       end
+   elseif oper == '::[' then
+      local base = self:process(node[1])
+      if node.is_lhs then
+         return { base..'['..expr..'] = %s' }
+      end
+      return base..'['..expr..']'
+   elseif oper == '.[' then
+      error('NYI')
    end
 end
 function def:late_bind(node)
@@ -414,10 +441,14 @@ function def:var_decl(node)
 
       if expr then
          rhs[i] = self:process(expr)
+         if type(rhs[i]) == 'table' then
+            rhs[i] = string.format(rhs[i][1], rhs[i][2])
+         end
       elseif i <= #expr_list then
-         rhs[i] = '__null__'
+         rhs[i] = 'nil'
       end
    end
+
    self:emit("local "..table.concat(lhs, ', ')..' = '..table.concat(rhs, ', '))
 end
 function def:bind_stmt(node)
@@ -436,7 +467,9 @@ function def:bind_stmt(node)
       ) or lhs_expr[1].tag == 'ident' and lhs_expr[1][1] == 'this' then
          self:error('invalid left hand side in assignment')
       end
-      lhs_expr[1].is_lhs = true
+      for i=1, #lhs_expr do
+         lhs_expr[i].is_lhs = true
+      end
       local a = self:process(lhs_expr)
       local b = self:process(rhs_expr)
       if type(a) == 'table' then
@@ -471,7 +504,10 @@ function def:func_decl(node)
    self:emit"end"
 end
 function def:func_params(node)
-   local list = { 'this' }
+   local list = { }
+   if self.in_class then
+      list[#list + 1] = 'this'
+   end
    for i=1,#node do
       if node[i].tag == "rest" then
          list[#list + 1] = "..."
@@ -486,7 +522,9 @@ end
 function def:short_lambda(node)
    node[1].tag = 'func_params'
    local parm_list = self:process(node[1])
-   assert(table.remove(parm_list, 1) == 'this')
+   if self.in_class and parm_list[1] == 'this' then
+      table.remove(parm_list, 1)
+   end
    local body = { }
    local code = self.code
    self.code = body
@@ -500,9 +538,6 @@ function def:short_lambda(node)
 end
 function def:func_literal(node)
    local parm_list = self:process(node[1])
-   if node.tag ~= 'func_decl' then
-      assert(table.remove(parm_list, 1) == 'this')
-   end
    local body = { }
    local code = self.code
    self.code = body
@@ -521,10 +556,7 @@ function def:return_stmt(node)
    for i=1, #expr_list do
       list[#list + 1] = self:process(expr_list[i])
    end
-   return 'return '..table.concat(list, ', ')
-end
-function def:func_init()
-   return 'local this = this if __self__ ~= nil then this = __self__ end'
+   return 'do return '..table.concat(list, ', ')..' end'
 end
 function def:table_literal(node)
    local buf = { }
@@ -556,10 +588,12 @@ function def:class_decl(node)
    local code = self.code
 
    local class_frame = { }
+   self.in_class = true
    self.code = class_frame
-   self:emit"do"
 
    self:emit(name..' = '..string.format('__class_create__(%q)', name))
+
+   self:emit"do"
 
    local from = head[1]
    local with = head[2]
@@ -584,35 +618,33 @@ function def:class_decl(node)
       local body_stmt = body[i]
       local member = body_stmt[1]
       if member.tag == "func_decl" then
-         self:process(member)
          local ident = member[1]
-         hoist[ident[1]] = 'nil'
-         if body_stmt.modifier ~= 'private' then
-            local args  = {
-               name,
-               string.format('%q', ident[1]),
-               ident[1],
-               string.format('%q', body_stmt.modifier or '')
-            }
-            self:emit('__class_add_meth__('..table.concat(args, ', ')..')')
+         local fname = ident[1]
+         if member.attribute == 'set' or member.attribute == 'get' then
+            ident[1] = '__'..member.attribute..'_'..ident[1]
          end
+         self:process(member)
+         hoist[ident[1]] = 'nil'
+         local args  = {
+            name,
+            string.format('%q', fname),
+            ident[1],
+            string.format('%q', body_stmt.modifier or ''),
+            string.format('%q', member.attribute or ''),
+         }
+         self:emit('__class_add_meth__('..table.concat(args, ', ')..')')
       elseif member.tag == "var_decl" then
          local name_list = member[1]
          local expr_list = member[2]
          for i=1, #name_list do
             local ident = name_list[i]
-            local default = '__null__'
+            local default = 'nil'
             if expr_list and expr_list[i] then
                default = self:process(expr_list[i])
             end
-            if body_stmt.modifier == 'private' then
-               hoist['__slot_'..ident[1]] = '{}'
-            else
-               hoist['__slot_'..ident[1]] = string.format('%q', ident[1])
-            end
             local args = {
                name,
-               '__slot_'..ident[1],
+               string.format('%q', ident[1]),
                default,
                string.format('%q', body_stmt.modifier or ''),
             }
@@ -639,13 +671,22 @@ function def:class_decl(node)
    end
    self.code = code
    self:emit(table.concat(class_frame, ' '))
+   self.in_class = nil
 end
 function def:role_decl(node)
    local iden = node[1]
    local name = iden[1]
    local head = node[2]
    local body = node[3]
+   local code = self.code
+
+   local class_frame = { }
+   self.in_class = true
+   self.code = class_frame
+
    self:emit(name..' = '..string.format('__role_create__(%q)', name))
+
+   self:emit"do"
 
    local with = head[1]
 
@@ -656,26 +697,63 @@ function def:role_decl(node)
       end
    end
 
+   local hoist = { }
+   self:emit"local %s"
+   local hoist_idx = #self.code
+
    for i=1, #body do
-      local member = body[i]
+      local body_stmt = body[i]
+      local member = body_stmt[1]
       if member.tag == "func_decl" then
-         local ident = table.remove(member, 1)
-         local args  = { name, string.format('%q', ident[1]), def.func_literal(self, member) }
+         self:process(member)
+         local ident = member[1]
+         hoist[ident[1]] = 'nil'
+         local args  = {
+            name,
+            string.format('%q', ident[1]),
+            ident[1],
+            string.format('%q', body_stmt.modifier or '')
+         }
          self:emit('__role_add_meth__('..table.concat(args, ', ')..')')
       elseif member.tag == "var_decl" then
          local name_list = member[1]
          local expr_list = member[2]
          for i=1, #name_list do
             local ident = name_list[i]
-            local default = '__null__'
+            local default = 'nil'
             if expr_list and expr_list[i] then
                default = self:process(expr_list[i])
             end
-            local args = { name, string.format('%q', ident[1]), default }
+            local args = {
+               name,
+               string.format('%q', ident[1]),
+               default,
+               string.format('%q', body_stmt.modifier or ''),
+            }
             self:emit('__role_add_attr__('..table.concat(args, ', ')..')')
          end
       end
    end
+   self:emit"end"
+
+   local hoist_keys = { }
+   local hoist_vals = { }
+   for k,v in pairs(hoist) do
+      hoist_keys[#hoist_keys + 1] = k
+      hoist_vals[#hoist_vals + 1] = v
+   end
+
+   if #hoist_keys > 0 then
+      local hoist_expr = self.code[hoist_idx]
+      self.code[hoist_idx] = hoist_expr:format(
+         table.concat(hoist_keys, ', ')..'='..table.concat(hoist_vals, ', ')
+      )
+   else
+      self.code[hoist_idx] = ''
+   end
+   self.code = code
+   self:emit(table.concat(class_frame, ' '))
+   self.in_class = nil
 end
 function def:if_stmt(node)
    for i=1, #node, 2 do
@@ -729,8 +807,9 @@ function def:try_catch(node)
    local catch_func = 'nil'
    if catch_node then
       local parm_list = self:process(catch_node[1])
-      table.remove(parm_list, 1)
-
+      if self.in_class and parm_list[1] == 'this' then
+         table.remove(parm_list, 1)
+      end
       local body = { }
       self.code = body
       self:process(catch_node[2])

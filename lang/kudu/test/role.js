@@ -1,4 +1,3 @@
-
 object Explosive {
    var message = "BOOM!"
    function explode() {
@@ -6,8 +5,9 @@ object Explosive {
    }
 }
 
-//TODO:
-//Explosive.explode()
+print("static:")
+Explosive.explode()
+print("done.")
 
 class Point with Explosive {
    var x = 0
@@ -27,13 +27,12 @@ print(p.x, p.y)
 p.explode()
 var old_explode = p.explode;
 
-var new_explode = function(what) {
-    print("KA"~this.message)
+var new_explode = function(self, what) {
+    print("KA"~self.message)
 }
 
 p.explode = new_explode
 p.explode()
 p.explode = old_explode
 p.explode()
-
 

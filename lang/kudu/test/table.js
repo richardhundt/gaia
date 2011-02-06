@@ -5,3 +5,8 @@ t.answer = function() {
 
 t.answer()
 
+var t = { foo : 'bar', baz : 'quux' }
+for (k,v in t) {
+    print(k, v)
+}
+

@@ -7,17 +7,18 @@ print(h["answer"])
 */
 
 class Hash {
+    private var table
     function this() {
-        this::table = { }
+        this.table = { }
     }
     function __get_index(key) {
-        return this::table::[key]
+        return this.table::[key]
     }
     function __set_index(key, val) {
-        this::table::[key] = val
+        this.table::[key] = val
     }
     function each(block) {
-        for (k,v in this::table) {
+        for (k,v in this.table) {
             block(k, v)
         }
     }

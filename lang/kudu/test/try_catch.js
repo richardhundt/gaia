@@ -8,7 +8,7 @@ function doit(num) {
         }
     }
     catch (ex) {
-        print("ARSE!", ex)
+        print("caught", ex)
     }
     finally {
         return "seen finally block"

@@ -12,3 +12,11 @@ for (i = 0, a.length - 1) {
 var greet = [ print, "Hello" ]
 greet("World!")
 
+var a = [ ]
+for (i=1, 10000000) {
+    a.push(i)
+    a.push(i)
+    a.shift()
+    a.shift()
+}
+
