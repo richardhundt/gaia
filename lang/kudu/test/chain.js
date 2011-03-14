@@ -1,1 +1,2 @@
-var a, b = foo.bar().baz()
+var foo = { print = print }
+foo.print("Cheese")

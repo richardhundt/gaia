@@ -62,6 +62,7 @@ Module.new = function(name)
       exports = { };
       imports = { };
       environ = { };
+      public  = { };
       name    = name;
    }, Module)
    setmetatable(self.environ, { __index = _M.global })
@@ -251,6 +252,8 @@ kudu.class.add_attrib = function(class, name, default, modifier)
       if visibility[modifier] > visibility['protected'] then
          meta.public.attribs['!'..name] = attr
          meta.public.attribs[name] = attr
+         meta.private.attribs[name] = attr
+         meta.protected.attribs[name] = attr
       end
    end
 end
@@ -259,6 +262,9 @@ kudu.class.add_classdata = function(class, name, info)
    meta.static[name] = info
 end
 kudu.class.extend = function(class, base)
+   if base == nil then
+      error("base class is nil", 2)
+   end
    local meta  = debug.getmetatable(class)
    meta.parent = base
    local base_meta = debug.getmetatable(base)
@@ -533,14 +539,22 @@ package.loaders[#package.loaders + 1] = function(modname)
             local chunk = kudu.compiler.compile(source, filepath, { })
             local modfunc = loadstring(chunk)
             local modenv = getfenv(modfunc)
-            local mod
-            if modenv and modenv.__package__ then
-               mod = modenv.__package__
-            else
-               mod = Module.new(modname)
-               setfenv(modfunc, mod.environ)
+            local mod = Module.new(modname)
+            setfenv(modfunc, mod.environ)
+            local curr = _M.global
+            for frag in string.gmatch(modname, "(.-)%.") do
+               local base = rawget(curr, frag)
+               if not base then
+                  base = { }
+                  rawset(curr, frag, base)
+               elseif type(curr) ~= "table" then
+                  error(string.format("name conflict for namespace '%s'", modname))
+                  break
+               end
+               curr = base
             end
-            package.loaded[modname] = mod
+            local name = string.match(modname, "([^%.]-)$")
+            curr[name] = mod.public
             return modfunc
          end
       end
@@ -552,6 +566,25 @@ kudu.runfile = function(filename, options)
    local main = assert(loadstring(chunk, "="..filename))
    setfenv(main, _M.global)
    main()
+end
+kudu.namespace = function(nsname)
+   local ns = _G
+   local path = nsname .. "."
+   for frag in string.gmatch(path, "(.-)%.") do
+      local base = rawget(curr, frag)
+      if not base then
+         base = { }
+         rawset(ns, frag, base)
+      elseif type(ns) ~= "table" then
+         ns = nil
+         break
+      end
+      ns = base
+   end
+   if not ns then
+      error(string.format("name conflict for namespace '%s'", nsname))
+   end
+   return ns
 end
 
 kudu.init = function() end
@@ -598,8 +631,9 @@ _M.global.print = _G.print
 _M.global.require = _G.require
 _M.global.select  = _G.select
 _M.global.kudu = kudu
+setmetatable(_M.global, { __index = _G })
 
-function kudu.load()
+function kudu.enter()
    setfenv(2, kudu.package.current.environ)
 end
 

@@ -30,27 +30,27 @@ function inet_ntop(bin_addr) { return magic::sys::sock::inet_ntop(bin_addr) }
 function pack_sockaddr_in(port, host) {
    var saddr = magic::sys::sock::addr()
    if (!saddr.inet(port, magic::sys::sock::inet_pton(host))) {
-      return false, _ERR
+      return false, magic::sys::_ERR
    }
    return saddr
 }
 
 function pack_sockaddr_un(path) {
-   var saddr = sys.sock.addr()
+   var saddr = magic::sys::sock::addr()
    if (!saddr.file(path)) {
-      return false, _ERR
+      return false, magic::sys::_ERR
    }
    return saddr
 }
 
 class Socket {
 
-    public var type   = 'stream'
-    public var domain = 'inet'
-    public var handle
-    public var buffer
+    var type   = 'stream'
+    var domain = 'inet'
+    var handle
+    var buffer
 
-    public var _nonblocking = false
+    var _nonblocking = false
 
     function this(type, domain) {
         if (type)   this.type   = type
@@ -60,8 +60,8 @@ class Socket {
         this.handle.socket(this.type, this.domain)
     }
 
-    function shutdown(...) {
-       return this.handle.shutdown(...)
+    function shutdown(...args) {
+       return this.handle.shutdown(...args)
     }
 
     function close() {
@@ -86,9 +86,9 @@ class Socket {
        return this._nonblocking
     }
 
-    function sockopt(opt, ...) {
-       if (OPTS[opt]) {
-          return magic::assert(this.handle.sockopt(opt, ...))
+    function sockopt(opt, ...args) {
+       if (SockOpts[opt]) {
+          return assert(this.handle.sockopt(opt, ...args))
        }
        else {
           throw "invalid socket option:" ~ opt
@@ -109,7 +109,7 @@ class Socket {
        if (val) {
           return this.accept_handle(newfd)
        }
-       return nil, errorMessage
+       return nil, magic::sys::_ERR
     }
 
     function accept_handle(newfd) {
@@ -118,12 +118,12 @@ class Socket {
        return sock
     }
 
-    function read(...) {
-       return this.handle.read(...)
+    function read(...args) {
+       return this.handle.read(...args)
     }
 
-    function write(...) {
-       return this.handle.write(...)
+    function write(...args) {
+       return this.handle.write(...args)
     }
 
     function readline(irs) {
@@ -147,11 +147,11 @@ class Socket {
        return this.handle.connect(pack_sockaddr_in(port, host))
     }
 
-    function recv(how, from_addr, ...) {
+    function recv(how, from_addr, ...args) {
        return this.handle.recv(how, from_addr)
     }
-    function send(data, dest_addr, ...) {
-       return this.handle.send(data, dest_addr, ...)
+    function send(data, dest_addr, ...args) {
+       return this.handle.send(data, dest_addr, ...args)
     }
     function bind(host, port) {
        return assert(this.handle.bind(pack_sockaddr_in(port, host)))
@@ -162,6 +162,7 @@ class Socket {
 }
 
 var sock = new Socket()
+print("SOCK:", sock)
 assert(sock.bind('127.0.0.1', 8089))
 assert(sock.listen(16))
 while (true) {

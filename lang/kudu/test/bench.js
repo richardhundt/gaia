@@ -1,37 +1,29 @@
-/*
-var r = 0
-function double(x) {
-    return x + x
-}
-for (x=1, 10000000) {
-    r = double(x)
-}
-print(r)
-*/
-
 class Point {
-   var x = 0
-   var y = 0
-   function this(x,y) {
-      this.x = x
-      this.y = y
-   }
+   var _x : Number = 0
+   var _y : Number = 0
    function move(x,y) {
-      this.x = x
-      this.y = y
+      this._x = x
+      this._y = y
    }
 }
 
 class Point3D extends Point {
-   var z = 0
+   var _z : Number = 0
    function move(x, y, z) {
       super.move(x, y)
-      this.z = z
+      this._z = z
    }
 }
 
 var p = new Point3D()
-for (i in 1 .. 10000000) {
+p._z = 42
+print(p._z)
+
+for i=1, 1e7 {
    p.move(i, i + 1, i + 2)
 }
-
+print(p._x)
+function cheese(mesg) {
+    print("mesg:", mesg)
+}
+cheese("Hey!")

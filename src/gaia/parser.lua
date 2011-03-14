@@ -64,6 +64,7 @@ local function make_node(tag)
          end
       end
       node.locn = { line = line, start, after - 1 }
+      --node.source = match:sub(start, after - 1)
       return setmetatable(node, ASTNode)
    end
 end

@@ -1,18 +1,12 @@
 module("gaia.util", package.seeall)
 
-function kpairs(t)
-   local k
-   if #t > 0 then k = #t end
-   return function()
-      k, v = next(t, k)
-      return k, v
-   end
-end
-
 local ignore = { locn = true; tag = true; parent = true }
 local LEVEL = 1
 function dump(node, seen)
    if not seen then seen = { } end
+   if type(node) == 'userdata' then
+      return tostring(node)
+   end
    if type(node) == "string" then
       return '"'..node..'"'
    end
@@ -42,14 +36,20 @@ function dump(node, seen)
 
    tput(buff, " {")
    LEVEL = LEVEL + 1
-   for k,data in kpairs(node) do
-      if not ignore[k] then
-         tput(buff, "\n"..dent..'"'..k..'" = '..dump(data, seen)..",")
+   local i_seen = { }
+   local i_buff = { }
+   for i,data in ipairs(node) do
+      i_seen[i] = true
+      tput(i_buff, "\n"..dent.."["..i.."] = "..dump(data, seen)..",")
+   end
+   local p_buff = { }
+   for k,data in pairs(node) do
+      if not ignore[k] and not i_seen[k] then
+         tput(p_buff, "\n"..dent..'['..dump(k)..'] = '..dump(data, seen)..",")
       end
    end
-   for i,data in ipairs(node) do
-      tput(buff, "\n"..dent.."["..i.."] = "..dump(data, seen)..",")
-   end
+   tput(buff, table.concat(p_buff))
+   tput(buff, table.concat(i_buff))
    LEVEL = LEVEL - 1;
 
    tput(buff, "\n"..string.rep("  ", LEVEL - 1).."}")

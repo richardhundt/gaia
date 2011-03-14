@@ -657,8 +657,9 @@ levq_loop (lua_State *L)
 		    else
 			lua_pushnil(L);
 
-		    if (!(ev_flags & EVENT_CALLBACK_THREAD))
+		    if (!(ev_flags & EVENT_CALLBACK_THREAD)) {
 			lua_call(L, 7, 0);
+                    }
 		    else {
 			lua_State *co = lua_tothread(L, ARG_LAST+4);
 			int status;
@@ -666,8 +667,14 @@ levq_loop (lua_State *L)
 			lua_xmove(L, co, 7);
 			lua_pop(L, 1);  /* pop coroutine */
 			status = lua_resume(co, 7);
-			if (status == 0 || status == LUA_YIELD)
+			if (status == LUA_YIELD) {
 			    lua_settop(co, 0);
+                        }
+                        else if (status == 0) {
+			    lua_settop(co, 0);
+                            ev->flags |= EVENT_DELETE;
+	                    evq_del(ev, 0);
+                        }
 			else {
 			    lua_xmove(co, L, 1);  /* error message */
 			    lua_error(L);

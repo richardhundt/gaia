@@ -1,26 +1,34 @@
 package Point;
 
-sub new {
-    my ( $class, $x, $y ) = @_;
-    bless { x => $x, y => $y }, $class;
-}
+use Moose;
+
+has x => ( isa => 'Num', is => 'rw', default => 0 );
+has y => ( isa => 'Num', is => 'rw', default => 0 );
 
 sub move {
     my ($self, $x, $y) = @_;
-    $self->{x} = $x;
-    $self->{y} = $y;
+    $self->x($x);
+    $self->y($y);
 }
+
+__PACKAGE__->meta->make_immutable;
 
 package Point3D;
 
-use base qw/Point/;
+use Moose;
+extends qw/Point/;
+
+has z => ( isa => 'Num', is => 'rw', default => 0 );
 
 sub move {
     my ( $self, $x, $y, $z ) = @_;
     $self->SUPER::move($x, $y);
-    $self->{z} = $z;
+    $self->z($z);
 }
 
+__PACKAGE__->meta->make_immutable;
+
+package main;
 
 my $p = Point3D->new();
 for ( 1 .. 10_000_000 ) {

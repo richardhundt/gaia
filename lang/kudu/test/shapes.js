@@ -1,6 +1,6 @@
 package test.shapes
 
-class Point {
+public class Point {
     var x = 0
     var y = 0
     function move(x, y) {

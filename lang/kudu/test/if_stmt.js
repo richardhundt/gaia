@@ -1,4 +1,7 @@
-if (1 > 2) {
+var a = { }
+var b = { }
+var c = 'blah'
+if (a[b] && c != 'cheese') {
     print("1 > 2");
 }
 else if (1 >= 1) {

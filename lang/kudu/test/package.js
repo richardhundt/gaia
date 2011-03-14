@@ -10,7 +10,7 @@ class Point3D extends Point {
    }
 }
 
-var p1 = new Point
+var p1 = new Point()
 print(p1)
 var p2 = new Point3D
 p2.move(1,2,3)

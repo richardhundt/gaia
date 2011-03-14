@@ -1,8 +1,19 @@
-#!/usr/bin/env lua
+#!/usr/bin/env luajit
 
-package.path = ';;./src/?.lua;../../src/?.lua;'..package.path
+package.path = ';;./src/?.lua;../../src/?.lua;./lib/?.lua;'..package.path
 package.cpath = ';;./lib/?.so;../../lib/?.so;'..package.cpath
 
-require "kudu.runtime"
-kudu.runfile(arg[1], { dump_ast = true, dump_ost = true })
+require "kudu.core"
+local Script   = require'kudu.script'
+local Compiler = require'kudu.compiler'
+
+local file = io.open(arg[1])
+local source = file:read"*a"
+local script = Script.new(source, arg[1])
+local compiler = Compiler.new()
+local luacode  = compiler:compile(script)
+local out = io.open("a.out", "w+")
+out:write(luacode)
+out:close()
+script:execute(luacode, unpack(arg, 2))
 

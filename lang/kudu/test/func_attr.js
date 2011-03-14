@@ -8,10 +8,9 @@ class Point {
 var p = new Point()
 p.x = 69
 p.y = 42
+print("x => ", p.x)
 
-print(typeof p)
-for (i in 1 .. 10000000) {
-    p.x = 42
+for i=1, 10000000 {
+    p.x = i
 }
-print(p.x)
-
+print("x => ", p.x)
