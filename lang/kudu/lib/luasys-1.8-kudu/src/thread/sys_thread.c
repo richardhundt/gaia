@@ -403,8 +403,7 @@ thread_run (lua_State *L)
 	goto err;
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 
-    res = pthread_create(&td->tid, &attr,
-     (thread_func_t) thread_start, td);
+    res = pthread_create(&td->tid, &attr, (thread_func_t) thread_start, td);
     pthread_attr_destroy(&attr);
     if (!res) {
 #else
@@ -664,6 +663,7 @@ thread_get_trigger (lua_State *L, struct sys_vmthread **vmtdp)
 
 
 #include "thread_dpool.c"
+#include "thread_channel.c"
 #include "thread_msg.c"
 
 
@@ -676,6 +676,7 @@ static luaL_reg thread_lib[] = {
     {"sleep",		thread_sleep},
     {"self",		thread_self},
     {"data_pool",	thread_data_pool},
+    {"channel",	        thread_channel},
     {"msg_send",	thread_msg_send},
     {"msg_recv",	thread_msg_recv},
     {"msg_count",	thread_msg_count},
@@ -692,6 +693,12 @@ luaopen_sys_thread (lua_State *L)
     luaL_register(L, NULL, dpool_meth);
     lua_pushcfunction(L, (lua_CFunction) dpool_get_trigger);
     lua_setfield(L, -2, SYS_TRIGGER_TAG);
+    lua_pop(L, 1);
+
+    luaL_newmetatable(L, CHANNEL_TYPENAME);
+    lua_pushvalue(L, -1);  /* push metatable */
+    lua_setfield(L, -2, "__index");  /* metatable.__index = metatable */
+    luaL_register(L, NULL, channel_meth);
     lua_pop(L, 1);
 
     /* create table of threads */

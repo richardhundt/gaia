@@ -60,6 +60,7 @@ Script.execute = function(self, code, ...)
    local ok, rv = xpcall(function()
       local __main__ = assert(loadstring(code))
       __main__(unpack(args))
+      kudu.core.events:loop()
       return getfenv(__main__).__exports__
    end, function(e, ...)
       print(e, debug.traceback())

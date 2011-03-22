@@ -170,6 +170,7 @@ dpool_get (lua_State *L)
 	{
 	    int res;
 	    dp->nwaits++;
+    	    thread_yield(L);
 	    res = thread_event_wait(&dp->tev, timeout);
 	    dp->nwaits--;
 	    if (res) {

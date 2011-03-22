@@ -3,6 +3,11 @@ module("kudu.core", package.seeall)
 local Script   = require'kudu.script'
 local Compiler = require'kudu.compiler'
 local Package  = require'kudu.package'
+local thread   = require"sys.thread"
+
+thread.init()
+
+events = sys.event_queue()
 
 Slot = { }
 Slot.__index = Slot
@@ -15,10 +20,14 @@ Slot.new = function(desc)
    else
       desc.key = desc.name
    end
-   if desc.default then
-      desc.val = assert(loadstring('return '..desc.default))
+   if desc.type == 'chan' then
+      desc.val = function() return Chan.new(desc) end
    else
-      desc.val = function() return nil end
+      if desc.default then
+         desc.val = assert(loadstring('return '..desc.default))
+      else
+         desc.val = function() return nil end
+      end
    end
    return setmetatable(desc, Slot)
 end
@@ -38,6 +47,31 @@ end
 Slot.set = function(self, o, v)
    local val = self.guard(v)
    rawset(o, self.key, val)
+end
+
+Chan = { }
+Chan.new = function(desc)
+   local self = {
+      ['#data']  = thread.channel();
+      ['#guard'] = desc.guard;
+   }
+   if desc.size then
+      self['#data']:max(desc.size)
+   end
+   return setmetatable(self, Chan)
+end
+Chan.__put = function(self, val)
+   local guard = self['#guard']
+   if guard then val = guard(val) end
+   self['#data']:put(val)
+end
+Chan.__get = function(self)
+   return self['#data']:get()
+end
+Chan.__pairs = function(self)
+   return function()
+      return self['#data']:get()
+   end
 end
 
 Proto = { }
@@ -112,7 +146,6 @@ magic  = { }
 global = { magic = magic }
 
 magic.sys = sys
-magic.yield = coroutine.yield
 
 KWeak = { __mode = 'k' }
 
@@ -463,6 +496,34 @@ magic.try_catch = function(try, catch, finally)
    return ret
 end
 
+magic.chan = function(size, guard)
+   local chan = Chan.new({ size = size, guard = guard })
+   return chan
+end
+
+magic.spawn = function(func)
+   local tid = assert(thread.run(func))
+   assert(events:add_trigger(tid, thread))
+end
+
+magic.put = function(obj, val)
+   local meta = getmetatable(obj)
+   if meta and meta.__put then
+      meta.__put(obj, val)
+   else
+      error('TypeError: '..tostring(obj)..' cannot put', 2)
+   end
+end
+
+magic.get = function(obj)
+   local meta = getmetatable(obj)
+   if meta and meta.__get then
+      return meta.__get(obj)
+   else
+      error('TypeError: '..tostring(obj)..' cannot get', 2)
+   end
+end
+
 global.bless = setmetatable
 magic.typeof = getmetatable
 
@@ -517,13 +578,11 @@ magic.spread = function(obj)
    return unpack(obj)
 end
 
-if not _G.jit then
-   local _pairs = pairs
-   pairs = function(obj)
-      local meta = getmetatable(obj)
-      if meta and meta.__pairs then return meta.__pairs(obj) end
-      return _pairs(obj)
-   end
+local _pairs = pairs
+pairs = function(obj)
+   local meta = getmetatable(obj)
+   if meta and meta.__pairs then return meta.__pairs(obj) end
+   return _pairs(obj)
 end
 
 magic.each = function(obj)
@@ -901,7 +960,7 @@ global.String.__index = function(s, k)
    return string[k]
 end
 setmetatable(global.String, {
-   __call = function(val)
+   __call = function(_, val)
       return tostring(val)
    end
 })

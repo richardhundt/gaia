@@ -16,4 +16,3 @@ local out = io.open("a.out", "w+")
 out:write(luacode)
 out:close()
 script:execute(luacode, unpack(arg, 2))
-

@@ -32,19 +32,6 @@ Scope.lookup = function(self, name)
    end
 end
 
-local function lookup_class_member(scope, name)
-   local cur = scope
-   local got
-   while cur do
-      if cur.entries[name] and cur.tag == 'class' then
-         got = cur.entries[name]
-         break
-      end
-      cur = cur.outer
-   end
-   return got, cur
-end
-
 local Compiler = { }
 Compiler.IDGEN = 9
 Compiler.__index = Compiler
@@ -54,7 +41,7 @@ end
 Compiler.compile = function(self, script)
    self.source = script.source
    local root = kudu.grammar.match(script.source)
-   print("AST:", root)
+   --print("AST:", root)
    self:enter_scope"global"
    for k,v in pairs(kudu.core.global) do
       self.scope:define(k, { modifier = 'global' })
@@ -110,13 +97,34 @@ Compiler.leave_scope = function(self)
    self.scope = self.scope.outer
    return scope
 end
+Compiler.find_scope = function(self, tag)
+   local cur = self.scope
+   while cur do
+      if cur.tag == tag then return cur end
+      cur = cur.outer
+   end
+   return cur
+end
+Compiler.lookup_in_scope = function(self, tag, name)
+   local cur = self.scope
+   local got
+   while cur do
+      if cur.entries[name] and cur.tag == tag then
+         got = cur.entries[name]
+         break
+      end
+      cur = cur.outer
+   end
+   return got, cur
+end
+
 Compiler.enter_block = function(self)
    self.code = { outer = self.code, guard = self.code and self.code.guard }
 end
 Compiler.leave_block = function(self)
    local code = self.code
    self.code = self.code.outer
-   print(table.concat(code, ' '))
+   --print(table.concat(code, ' '))
    return table.concat(code, ' ')
 end
 Compiler.sync = function(self, node)
@@ -142,9 +150,28 @@ Compiler.make_info = function(self, node, type)
       if guard[1].tag == "ident" then
          info.guard = guard[1][1]
       elseif guard[1].tag == 'table_literal' then
-         local like = self:genid"like"
-         self:emit("local "..guard..'='..self:get('like_literal', { tag = 'like_literal', guard }))
+         local like = self:genid"guard"
+         self:emit("local "..guard..'='..self:get('like_literal', {
+            tag = 'like_literal', guard
+         }))
          info.guard = like
+      elseif guard[1].tag == 'op_prefix' then
+         local oper = guard[1].oper
+         local temp = self:genid"guard"
+         local guard = self:gen(guard[1][1])
+         if oper == '?' then
+            self:emit("local "..temp..'=function(v) '..
+               'if v == nil then return nil end '..
+               'return '..guard..'(v) end'
+            )
+            info.guard = temp
+         elseif oper == '!' then
+            self:emit("local "..temp..'=function(v) '..
+               'if v == nil then error("TypeError: non-nil value expected") end '..
+               'return '..guard..'(v) end'
+            )
+            info.guard = temp
+         end
       else
          error('NYI: info - '..tostring(guard))
       end
@@ -158,7 +185,9 @@ Compiler.make_guard = function(self, node)
          guard = node.guard[1][1]
       elseif node.guard[1].tag == 'table_literal' then
          guard = self:genid"like"
-         self:emit("local "..guard..'='..self:get('like_literal', { tag = 'like_literal'; node.guard[1] }))
+         self:emit("local "..guard..'='..self:get('like_literal', {
+            tag = 'like_literal'; node.guard[1]
+         }))
       else
          error('NYI: info - '..tostring(node.guard[1]))
       end
@@ -311,6 +340,8 @@ Compiler.handlers = {
             end
          elseif node.tag == 'rule_decl' then
             self.scope:define(node[1][1], { modifier = node.modifier, type = 'rule' })
+         elseif node.tag == 'chan_decl' then
+            self.scope:define(node[1][1], { modifier = node.modifier, type = 'chan' })
          elseif node.tag == 'class_decl' then
             self.scope:define(node[1][1], { modifier = node.modifier })
          elseif node.tag == 'object_decl' then
@@ -377,6 +408,23 @@ Compiler.handlers = {
       return slot_list
    end;
 
+   ['chan_desc'] = function(self, node)
+      local name
+      if node.tag == 'chan_decl' then
+         name = node[1][1]
+      else
+         name = self:genid"chan"
+      end
+      local info = self:make_info(node)
+      return {
+         type     = 'chan';
+         name     = name;
+         size     = { type = node.size == nil and 'nil' or 'number', value = node.size };
+         guard    = { type = 'name', name = info.guard };
+         modifier = node.modifier;
+      }
+   end;
+
    ['method_desc'] = function(self, node)
       self:enter_scope"method"
 
@@ -436,6 +484,8 @@ Compiler.handlers = {
             self.scope:define(node[1][1], self:make_info(node,'rule'))
          elseif node.tag == 'func_decl' then
             self.scope:define(node[1][1], self:make_info(node))
+         elseif node.tag == 'chan_decl' then
+            self.scope:define(node[1][1], self:make_info(node,'chan'))
          end
       end
 
@@ -468,6 +518,10 @@ Compiler.handlers = {
          elseif node.tag == 'rule_decl' then
             local rule = self:get('rule_desc', node)
             desc.rules[rule.name] = rule
+
+         elseif node.tag == 'chan_decl' then
+            local chan = self:get('chan_desc', node)
+            desc.slots[chan.name] = chan
 
          elseif node.tag == 'var_decl' then
             local slots = self:get('slots_desc', node)
@@ -800,6 +854,7 @@ Compiler.handlers = {
          if expr then self:emit(expr..';') end
       end
 
+      local scope = self.scope
       self:leave_scope()
       return {
          type   = 'function',
@@ -982,7 +1037,7 @@ Compiler.handlers = {
       if o == "." or o == '::' then
          local is_private
          if a == 'this' then
-            local found, scope = lookup_class_member(self.scope, b)
+            local found, scope = self:lookup_in_scope('class', b)
             if found then
                if found.modifier == "private" then
                   b = '#'..b
@@ -1055,7 +1110,10 @@ Compiler.handlers = {
       elseif o == 'is' then return '__isa__('..a..', '..b..')'
       elseif o == 'with' then return '__with__('..a..', '..b..')'
 
-      else error("NYI: infix operator: "..o) end
+      -- concurrency
+      elseif o == '<-' then return '__put__('..a..', '..b..')'
+
+      else error("NYI: infix: "..tostring(node)) end
    end;
 
    ['op_postcircumfix'] = function(self, node)
@@ -1090,7 +1148,7 @@ Compiler.handlers = {
             return base..'['..expr..']'
          end
       end
-      --error("NYI")
+      error("NYI postcircumfix:"..tostring(node))
    end;
 
    ['op_prefix'] = function(self, node)
@@ -1126,7 +1184,10 @@ Compiler.handlers = {
          return a..' = '..a..' - 1'
       elseif o == 'typeof' then
          return '__typeof__('..a..')'
+      elseif o == '<-' then
+         return '__get__('..a..')'
       end
+      error("NYI prefix:"..tostring(node))
    end;
 
    ['op_postfix'] = function(self, node)
@@ -1335,13 +1396,53 @@ Compiler.handlers = {
          if expr then self:emit(expr) end
       end
 
+      local body = self:leave_block()
+      local scope = self.scope
       self:leave_scope()
-      local func = 'function '..name..'('..table.concat(parm_list, ', ')..') '..self:leave_block()..' end'
+      local func = 'function '..name..'('..table.concat(parm_list, ', ')..') '..body..' end'
       if self.scope.tag == 'package' or self.scope.tag == 'global' then
          self:emit(func)
       else
          self:emit('local '..func)
       end
+   end;
+
+   ['chan_decl'] = function(self, node)
+      local info = self:make_info(node)
+      local size
+      if node.size then
+         size = self:gen(node.size)
+         if tonumber(node.size[1]) < 1 then
+            self:error("channel size must be positive");
+         end
+      end
+      local args = { size or 'nil' }
+      local name = node[1][1]
+      if info.guard then
+         args[#args + 1] = info.guard
+      end
+      self:emit(name..'=__chan__('..table.concat(args,',')..')')
+   end;
+
+   ['chan_literal'] = function(self, node)
+      local info = self:make_info(node)
+      local size
+      if node.size then
+         size = self:gen(node.size)
+         if tonumber(node.size[1]) < 1 then
+            self:error("channel size must be positive");
+         end
+      end
+      local args = { size or 'nil' }
+      if info.guard then
+         args[#args + 1] = info.guard
+      end
+      return '__chan__('..table.concat(args,',')..')'
+   end;
+
+   ['spawn_stmt'] = function(self, node)
+      local expr = self:gen(node[1])
+      self:emit('__spawn__(function() '..expr..' end)')
    end;
 
    ['expr_list'] = function(self, node)
@@ -1350,23 +1451,6 @@ Compiler.handlers = {
          list[#list + 1] = self:gen(node[i])
       end
       return list
-   end;
-
-   ['yield_stmt'] = function(self, node)
-      local expr_list = node[1]
-      local list = { }
-      if expr_list then
-         for i=1, #expr_list do
-            list[#list + 1] = self:gen(expr_list[i])
-         end
-      end
-      if self.code.guard then
-         local guard = self.code.guard
-         --table.insert(list, 1, guard)
-         --return 'do return __coerce__('..table.concat(list, ',')..') end'
-         return '__yield__('..guard..'('..table.concat(list, ',')..'))'
-      end
-      return '__yield__('..table.concat(list, ',')..')'
    end;
 
    ['return_stmt'] = function(self, node)

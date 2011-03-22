@@ -13,6 +13,8 @@ local stmt_sep = s * m.P";"^-1
 local line_comment = m.P"//" * (1 - m.V"NL")^0 * m.V"NL"
 local span_comment = m.P"/*" * ((m.V"NL" + 1) - m.P"*/")^0 * m.P"*/"
 local comment = line_comment + span_comment
+local idsafe =  -(m.V"alnum" + m.P"_")
+
 p:skip { (comment + m.V"WS")^0 }
 
 p:rule(1) {
@@ -27,6 +29,7 @@ p:match"block" {
 p:rule"statement" {
      m.V"func_decl"     * stmt_sep
    + m.V"var_decl"      * stmt_sep
+   + m.V"chan_decl"     * stmt_sep
    + m.V"enum_stmt"     * stmt_sep
    + m.V"like_stmt"     * stmt_sep
    + m.V"if_stmt"       * stmt_sep
@@ -39,13 +42,12 @@ p:rule"statement" {
    + m.V"export_stmt"   * stmt_sep
    + m.V"class_decl"    * stmt_sep
    + m.V"object_decl"   * stmt_sep
-   + m.V"regexp_decl"   * stmt_sep
    + m.V"rule_decl"     * stmt_sep
    + m.V"bind_stmt"     * stmt_sep
    + m.V"binop_bind"    * stmt_sep
    + m.V"throw_stmt"    * stmt_sep
+   + m.V"spawn_stmt"    * stmt_sep
    + m.V"try_catch"     * stmt_sep
-   + m.V"yield_stmt"    * stmt_sep
    + m.V"break_stmt"    * stmt_sep
    + m.V"continue_stmt" * stmt_sep
    + m.V"expr_stmt"     * stmt_sep
@@ -55,12 +57,12 @@ p:token"word_char" {
 }
 p:rule"keyword" {
    (
-      m.P"var" + "function" + "class" + "is" + "with" + "new" + "object" + "yield"
+      m.P"var" + "function" + "class" + "is" + "with" + "new" + "object" + "spawn"
       + "nil" + "true" + "false" + "typeof" + "return" + "in" + "for" + "throw"
       + "enum" + "like" + "delete" + "private" + "public" + "protected" + "extends"
       + "break" + "continue" + "package" + "import" + "export" + "try" + "catch"
-      + "finally" + "static" + "this" + "regexp" + "rule" + "if" + "else"
-   ) * -(m.V"alnum"+m.P"_")
+      + "finally" + "static" + "this" + "rule" + "if" + "else" + "chan"
+   ) * idsafe
 }
 
 p:rule"guard" {
@@ -114,8 +116,8 @@ p:rule"primary" {
    + m.V"table_literal"
    + m.V"tuple_literal"
    + m.V"object_literal"
-   + m.V"regexp_literal"
    + m.V"func_literal"
+   + m.V"chan_literal"
    + m.V"like_literal"
    + m.Cg(m.C"(" * s * m.V"expr" * s * p:expect")" / function(o, ...)
       return gaia.parser.ASTNode{ tag = 'op_circumfix', oper = o, ... }
@@ -169,61 +171,61 @@ p:rule"expr_stmt" {
    end
 }
 p:match"enum_stmt" {
-   m.P"enum" * s * m.V"ident" * s * p:expect"{" *
+   m.P"enum" * idsafe * s * m.V"ident" * s * p:expect"{" *
    (s * m.V"ident" * s * ";")^1 * s *
    p:expect"}"
 }
 p:match"like_stmt" {
-   m.P"like" * s * m.V"ident" * s * m.V"like_expr"
+   m.P"like" * idsafe * s * m.V"ident" * s * m.V"like_expr"
 }
 p:match"for_stmt" {
-   m.P"for" * s
+   m.P"for" * idsafe * s
    * m.V"ident" * s * "=" * s * m.V"expr" * s
    * p:expect"," * s * m.V"expr" * (s * "," * s * m.V"expr" + m.C(true)) * s
    * m.V"cond_block"
 }
 p:match"for_in_stmt" {
-   m.P"for" * s
+   m.P"for" * idsafe * s
    * m.V"for_in_vars" * s
-   * m.P"in" * s * m.V"list_expr_noin" * s
+   * m.P"in" * idsafe * s * m.V"list_expr_noin" * s
    * m.V"cond_block"
 }
 p:match"for_in_vars" {
    m.V"ident" * (s * "," * s * m.V"ident")^0
 }
 p:match"while_stmt" {
-   m.P"while" * s * p:expect"(" * s
-   * (m.V"expr" + m.C(true)) * s * p:expect")" * s
+   m.P"while" * idsafe * s
+   * m.V"expr" * s
    * m.V"cond_block"
 }
 p:match"if_stmt" {
-   m.P"if" * s * p:expect"(" * s * m.V"expr" * s * p:expect")" * s
+   m.P"if" * idsafe * s * m.V"expr" * s
    * m.V"cond_block" * s
-   * (m.P"else" * s * m.P"if" * s
-      * p:expect"(" * s * m.V"expr" * s * p:expect")" * s
+   * (m.P"else" * idsafe * s * m.P"if" * idsafe * s
+      * m.V"expr" * s
       * m.V"cond_block" * s)^0
-   * (m.P"else" * s * m.V"cond_block")^-1
+   * (m.P"else" * idsafe * s * m.V"cond_block")^-1
+}
+p:match"spawn_stmt" {
+   m.P"spawn" * idsafe * s * m.V"expr"
 }
 p:match"throw_stmt" {
-   m.P"throw" * s * m.V"expr"
+   m.P"throw" * idsafe * s * m.V"expr"
 }
 p:match"try_catch" {
-   m.P"try" * s * m.V"cond_block" * (s * m.V"catch_block")^-1 * (s * m.V"finally_block")^-1
+   m.P"try" * idsafe * s * m.V"cond_block" * (s * m.V"catch_block")^-1 * (s * m.V"finally_block")^-1
 }
 p:match"catch_block" {
-   m.P"catch" * s * p:expect"(" * s * m.V"func_params" * s * p:expect")" * s * m.V"cond_block"
+   m.P"catch" * idsafe * s * p:expect"(" * s * m.V"func_params" * s * p:expect")" * s * m.V"cond_block"
 }
 p:match"finally_block" {
-   m.P"finally" * s * m.V"cond_block"
-}
-p:match"yield_stmt" {
-   m.P"yield" * -(m.V"alnum" + m.P"_") * s * m.V"expr_list"^-1
+   m.P"finally" * idsafe * s * m.V"cond_block"
 }
 p:match"break_stmt" {
-   m.P"break" * -(m.V"alnum" + m.P"_")
+   m.P"break" * idsafe
 }
 p:match"continue_stmt" {
-   m.P"continue" * -(m.V"alnum" + m.P"_")
+   m.P"continue" * idsafe
 }
 p:match"cond_block" {
    m.P"{" * s * (m.V"statement" * stmt_sep)^0 * s * p:expect"}"
@@ -261,7 +263,7 @@ p:match"range" {
 p:match"func_decl" {
    (m.Cg(m.C"public" + m.C"private" + m.C"static", "modifier") * s)^-1
    * m.P"function" * s * (
-      m.Cg((m.C"get" + m.C"set") * -(m.V"alnum" + "_") + m.P(true), "attribute")
+      m.Cg((m.C"get" + m.C"set") * idsafe + m.P(true), "attribute")
    ) * s * (m.V"ident" + m.V"this") * s * m.V"func_common"
 }
 p:match"func_literal" {
@@ -278,8 +280,19 @@ p:match"func_params" {
    * (s * "," * s * m.V"rest")^-1) * (s * m.V"rest" * s)^-1
    + m.P(true)
 }
+p:match"chan_decl" {
+   (m.Cg(m.C"public" + m.C"private" + m.C"static", "modifier") * s)^-1
+   * m.P"chan" * idsafe * s * m.V"ident" * s
+   * p:expect"(" * s * m.Cg(m.V"number" + m.Cc(nil), 'size') * s * p:expect")" * s
+   * m.Cg(m.V"guard", "guard")^-1
+}
+p:match"chan_literal" {
+   m.P"chan" * idsafe * s
+   * p:expect"(" * s * m.Cg(m.V"number"^1 + m.Cc(nil), 'size') * s * p:expect")" * s
+   * m.Cg(m.V"guard", "guard")^-1
+}
 p:match"return_stmt" {
-   m.P"return" * -(m.V"alnum" + m.P"_") * s * m.V"expr_list"^-1
+   m.P"return" * idsafe * s * m.V"expr_list"^-1
 }
 p:match"class_decl" {
    (m.Cg(m.C"public" + m.C"private", "modifier") * s)^-1
@@ -296,7 +309,7 @@ p:match"class_body" {
 p:rule"class_body_stmt" {
    m.V"var_decl"      * stmt_sep
    + m.V"func_decl"   * stmt_sep
-   + m.V"regexp_decl" * stmt_sep
+   + m.V"chan_decl"   * stmt_sep
    + m.V"rule_decl"   * stmt_sep
    + m.V"with_stmt"   * stmt_sep
 }
@@ -315,14 +328,6 @@ p:match"object_decl" {
 }
 p:match"object_literal" {
    m.P"object" * s * p:expect"{" * s * m.V"class_body" * s * p:expect"}"
-}
-p:match"regexp_decl" {
-   m.P"regexp" * s * m.V"ident" * s * p:expect"{" * s * re.pattern * s * p:expect"}"
-}
-p:match"regexp_literal" {
-   m.P"regexp" * s * p:expect"{" * s
-   * m.C(re.parser) / function(a) return a end * s
-   * p:expect"}"
 }
 p:rule"member_term" {
    m.V"late_bind" + m.V"ident" + m.V"expr"
@@ -451,11 +456,12 @@ p:match"rule_ref" {
 ------------------------------------------------------------------------------
 local expr_base = p:express"expr_base" :primary"term"
 
-expr_base:op_infix("||", "&&"   ):prec(3)
+expr_base:op_infix("&&") :prec(3)
+expr_base:op_infix("||") :prec(4)
 expr_base:op_infix("|", "^", "&"):prec(6)
 expr_base:op_infix("!=", "==", "instanceof" ):prec(7)
 expr_base:op_infix(
-   ">>>", ">>", "<<"
+   "<-", ">>>", ">>", "<<"
    ):prec(9)
 expr_base:op_infix("~", "+", "-"):prec(10)
 expr_base:op_infix("*", "/", "%"):prec(20)
@@ -463,7 +469,7 @@ expr_base:op_prefix(
    "typeof", "delete", "--", "++", "~", "!", "+", "-" --, "#"
    ):prec(30)
 expr_base:op_infix("**"):prec(35)
-expr_base:op_prefix"new":prec(40)
+expr_base:op_prefix("new", "<-"):prec(40)
 expr_base:op_postfix("++", "--"):prec(35)
 expr_base:op_ternary"?:":prec(2)
 
@@ -500,6 +506,7 @@ list_expr_noin:op_listfix"," :prec(1)
 ------------------------------------------------------------------------------
 local guard_expr = p:express"guard_expr" :primary"guard_term"
 guard_expr:op_infix("|", "&")  :prec(2)
+guard_expr:op_prefix("?", "!") :prec(3)
 
 function match(source)
    return assert(p:parse(source), "failed to parse")
